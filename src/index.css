@@ -1,0 +1,61 @@
+@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #0f1923;
+  color: #f0f0f0;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Use dynamic viewport height where supported — 100vh ignores mobile browser
+   chrome (address bar, Android gesture nav), pushing bottom-anchored panels
+   off-screen. dvh accounts for the actual visible area. */
+.app-root {
+  height: 100vh;
+  height: 100dvh;
+  width: 100vw;
+}
+
+.field-panel-h {
+  max-height: 50vh;
+  max-height: 50dvh;
+}
+
+.bottom-sheet-h {
+  max-height: 88vh;
+  max-height: 88dvh;
+}
+
+/* Onboarding screens — irrigation photo backdrop with a dark scrim so text
+   and inputs stay legible. Scrim deepens toward the bottom where the card sits. */
+.auth-bg {
+  background-image:
+    linear-gradient(180deg, rgba(15,25,35,0.55) 0%, rgba(15,25,35,0.82) 55%, rgba(15,25,35,0.96) 100%),
+    url('/login-bg.png');
+  background-size: cover;
+  background-position: center;
+}
+
+.auth-card {
+  background: rgba(26,37,53,0.55);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 20px;
+  padding: 28px 24px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+}
+
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  background: #0f1923;
+}
+
+.leaflet-control-attribution {
+  font-size: 9px;
+  opacity: 0.4;
+}
