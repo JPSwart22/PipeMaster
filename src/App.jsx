@@ -4,9 +4,11 @@ import FieldModeHome from './components/FieldModeHome'
 import AuthGate from './components/AuthGate'
 import TutorialMode from './components/TutorialMode'
 import PrivacyPolicy from './components/PrivacyPolicy'
+import TermsOfUse from './components/TermsOfUse'
 
 export default function App() {
   if (window.location.pathname === '/privacy') return <PrivacyPolicy />
+  if (window.location.pathname === '/terms') return <TermsOfUse />
 
   const [mode, setMode] = useState(() => localStorage.getItem('pipemaster-mode') || 'field')
   // True on first launch — TutorialMode is inside AuthGate's children so it only

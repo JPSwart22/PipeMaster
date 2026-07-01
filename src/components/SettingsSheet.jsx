@@ -177,6 +177,54 @@ export default function SettingsSheet({ onClose }) {
           View intro again
         </button>
 
+        {/* Support */}
+        <div>
+          <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Support</div>
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+            <a href="mailto:jppipemaster@gmail.com?subject=Pipemaster%20Support%20Request"
+               className="flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-all"
+               style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <span className="text-base">✉️</span>
+              <div className="flex flex-col">
+                <span className="font-medium">Email Support</span>
+                <span className="text-xs text-gray-500">jppipemaster@gmail.com</span>
+              </div>
+              <span className="ml-auto text-gray-600">›</span>
+            </a>
+            <a href="mailto:jppipemaster@gmail.com?subject=Pipemaster%20Bug%20Report&body=Describe%20what%20happened%3A%0A%0ASteps%20to%20reproduce%3A%0A%0ADevice%2FOS%3A"
+               className="flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-all">
+              <span className="text-base">🐛</span>
+              <div className="flex flex-col">
+                <span className="font-medium">Report a Bug</span>
+                <span className="text-xs text-gray-500">Pre-filled email with details</span>
+              </div>
+              <span className="ml-auto text-gray-600">›</span>
+            </a>
+          </div>
+        </div>
+
+        {/* Legal */}
+        <div>
+          <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Legal</div>
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+            <button
+              onClick={() => window.open('/terms', '_blank')}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left"
+              style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <span className="text-base">📋</span>
+              <span className="font-medium flex-1">Terms of Use</span>
+              <span className="text-gray-600">›</span>
+            </button>
+            <button
+              onClick={() => window.open('/privacy', '_blank')}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-gray-300 hover:text-white hover:bg-white/5 transition-all text-left">
+              <span className="text-base">🔒</span>
+              <span className="font-medium flex-1">Privacy Policy</span>
+              <span className="text-gray-600">›</span>
+            </button>
+          </div>
+        </div>
+
         <button onClick={signOut}
                 className="w-full py-2.5 rounded-xl text-sm text-red-400 hover:text-red-300 border border-red-900/40 hover:border-red-700/40 transition-all">
           Sign out
