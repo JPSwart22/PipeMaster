@@ -1,5 +1,6 @@
 import supabase from './supabase'
-import { generateFarmCode, saveFarmCode, pullFromCloud } from './cloudSync'
+import { generateFarmCode, saveFarmCode, pullFromCloud, pushToCloud } from './cloudSync'
+import { clearAllTablesData } from './backup'
 
 // Returns the farm the current user belongs to, or null if they haven't joined/created one yet
 export async function getMyFarm() {
@@ -30,6 +31,9 @@ export async function setupFarm(farmName) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not signed in')
 
+  // Wipe any pre-existing local data so the new farm starts completely empty
+  await clearAllTablesData()
+
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = generateFarmCode()
     const { data: farm, error } = await supabase
@@ -43,6 +47,7 @@ export async function setupFarm(farmName) {
         .insert({ farm_id: farm.id, user_id: user.id, role: 'owner' })
       if (memberError) throw memberError
       saveFarmCode(farm.code)
+      try { await pushToCloud(farm.code) } catch { /* non-fatal — syncs on next write */ }
       return farm
     }
     if (error.code !== '23505') throw error // not a unique-code collision — a real error

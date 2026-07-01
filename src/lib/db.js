@@ -125,6 +125,16 @@ db.version(9).stores({
   schematics: null,
 })
 
+// v10 — add teeId index to runs so child runs (branching from a tee marker) can be queried
+db.version(10).stores({
+  runs: '++id, fieldId, riserId, wellId, teeId, furrowPattern, name, status, startTime, endTime, gpmReading, gallons',
+})
+
+// v11 — flags: GPS pins with title + description, droppable in field or dev mode
+db.version(11).stores({
+  flags: '++id, farmId, lat, lon, title, createdAt',
+})
+
 // Fires a window event on every successful write to any table, regardless of
 // which component made it — lets the auto-sync engine debounce-push to the
 // cloud without every db.X.add/update/delete call site needing to know about sync.

@@ -6,9 +6,9 @@ import EditableText from './EditableText'
 import SettingsSheet, { SyncStatusDot } from './SettingsSheet'
 
 // ── Tee row: a T-fitting marker on a run, with its own child runs ────────────
-function TeeRow({ tee, onAddRunFromTee, onOpenRunLog, onEditRun }) {
+function TeeRow({ tee, onAddRunFromTee, onOpenRunLog, onEditRun, onDeleteTee }) {
   const teeRuns = useLiveQuery(
-    () => db.runs.filter(r => r.teeId === tee.id).toArray(),
+    () => db.runs.where('teeId').equals(tee.id).toArray(),
     [tee.id]
   )
   return (
@@ -21,44 +21,49 @@ function TeeRow({ tee, onAddRunFromTee, onOpenRunLog, onEditRun }) {
           className="text-green-600 hover:text-green-400 text-xs transition-colors px-1 flex-shrink-0">
           + Run
         </button>
+        <button
+          onClick={() => onDeleteTee(tee)}
+          className="opacity-0 group-hover:opacity-100 text-red-700 hover:text-red-500 text-xs leading-none transition-all px-1 flex-shrink-0">
+          ×
+        </button>
       </div>
       {teeRuns?.map(tr => (
-        <RunWithTees key={tr.id} run={tr} onAddRunFromTee={onAddRunFromTee} onOpenRunLog={onOpenRunLog} onEditRun={onEditRun} />
+        <RunWithTees key={tr.id} run={tr} onAddRunFromTee={onAddRunFromTee} onOpenRunLog={onOpenRunLog} onEditRun={onEditRun} onDeleteTee={onDeleteTee} />
       ))}
     </div>
   )
 }
 
 // ── Run row with nested tee markers ───────────────────────────────────────────
-function RunWithTees({ run, onAddRunFromTee, onOpenRunLog, onEditRun }) {
+function RunWithTees({ run, onAddRunFromTee, onOpenRunLog, onEditRun, onDeleteTee }) {
   const tees = useLiveQuery(
     () => db.tees.where('runId').equals(run.id).toArray(),
     [run.id]
   )
   return (
     <div>
-      <div className="flex items-center gap-1 py-1 group">
+      <div className="flex items-center gap-1 py-1.5">
         {run.status === 'running' && <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0 animate-pulse" />}
         <button onClick={() => onOpenRunLog(run)}
-                className="flex items-center gap-2 flex-1 min-w-0 text-left py-0.5 hover:opacity-80 transition-opacity">
+                className="flex items-center gap-2 flex-1 min-w-0 text-left py-1 hover:opacity-80 transition-opacity">
           <span className="text-orange-400 text-sm flex-shrink-0">→</span>
           <span className="text-gray-300 text-sm truncate">{run.name}</span>
         </button>
         <button
           onClick={() => onEditRun(run)}
-          className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-blue-400 text-sm transition-all px-1.5 flex-shrink-0">
+          className="text-gray-500 hover:text-blue-400 active:text-blue-300 text-base transition-all px-2 py-1 flex-shrink-0">
           ⚙
         </button>
       </div>
       {tees?.map(tee => (
-        <TeeRow key={tee.id} tee={tee} onAddRunFromTee={onAddRunFromTee} onOpenRunLog={onOpenRunLog} onEditRun={onEditRun} />
+        <TeeRow key={tee.id} tee={tee} onAddRunFromTee={onAddRunFromTee} onOpenRunLog={onOpenRunLog} onEditRun={onEditRun} onDeleteTee={onDeleteTee} />
       ))}
     </div>
   )
 }
 
 // ── Riser row with its runs ───────────────────────────────────────────────────
-function RiserRow({ riser, well, onDeleteRiser, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun }) {
+function RiserRow({ riser, well, onDeleteRiser, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun, onDeleteTee }) {
   const runs = useLiveQuery(
     () => db.runs.where('riserId').equals(riser.id).toArray(),
     [riser.id]
@@ -87,12 +92,12 @@ function RiserRow({ riser, well, onDeleteRiser, onAddRun, onAddRunFromTee, onOpe
 
       <div className="pl-4 mb-2">
         {runs?.map(run => (
-          <RunWithTees key={run.id} run={run} onAddRunFromTee={onAddRunFromTee} onOpenRunLog={onOpenRunLog} onEditRun={onEditRun} />
+          <RunWithTees key={run.id} run={run} onAddRunFromTee={onAddRunFromTee} onOpenRunLog={onOpenRunLog} onEditRun={onEditRun} onDeleteTee={onDeleteTee} />
         ))}
         <button
           onClick={() => onAddRun(riser)}
-          className="mt-1 w-full flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-all active:scale-95"
-          style={{ background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.4)', color: '#f97316' }}>
+          className="mt-1 w-full flex items-center justify-center gap-1 py-1 rounded-md text-xs font-medium transition-all active:opacity-70"
+          style={{ border: '1px dashed rgba(249,115,22,0.4)', color: '#f97316', background: 'transparent' }}>
           + Add run
         </button>
       </div>
@@ -101,7 +106,7 @@ function RiserRow({ riser, well, onDeleteRiser, onAddRun, onAddRunFromTee, onOpe
 }
 
 // ── Inline risers shown when a field row is expanded ─────────────────────────
-function FieldInlineRows({ field, onDeleteRiser, onAddRiserToField, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun }) {
+function FieldInlineRows({ field, onDeleteRiser, onAddRiserToField, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun, onDeleteTee }) {
   const fieldRisers = useLiveQuery(() => db.risers.where('fieldId').equals(field.id).toArray(), [field.id])
   const allWells    = useLiveQuery(() => db.wells.toArray(), [])
 
@@ -124,12 +129,13 @@ function FieldInlineRows({ field, onDeleteRiser, onAddRiserToField, onAddRun, on
             onAddRunFromTee={onAddRunFromTee}
             onOpenRunLog={onOpenRunLog}
             onEditRun={onEditRun}
+            onDeleteTee={onDeleteTee}
           />
         ))}
         <button
           onClick={() => onAddRiserToField(field)}
-          className="w-full flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-all active:scale-95"
-          style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.4)', color: '#60a5fa' }}>
+          className="w-full flex items-center justify-center gap-1 py-1 rounded-md text-xs font-medium transition-all active:opacity-70"
+          style={{ border: '1px dashed rgba(59,130,246,0.4)', color: '#60a5fa', background: 'transparent' }}>
           + Add riser
         </button>
       </div>
@@ -138,7 +144,7 @@ function FieldInlineRows({ field, onDeleteRiser, onAddRiserToField, onAddRun, on
 }
 
 // ── Field detail (full view — opened via ⚙ icon or map tap) ──────────────────
-function FieldDetail({ field, onBack, onEditBoundary, onAddRiserToField, onDeleteRiser, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun }) {
+function FieldDetail({ field, onBack, onEditBoundary, onAddRiserToField, onDeleteRiser, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun, onDeleteTee }) {
   const fieldRisers = useLiveQuery(() => db.risers.where('fieldId').equals(field.id).toArray(), [field.id])
   const allWells    = useLiveQuery(() => db.wells.toArray(), [])
 
@@ -150,7 +156,17 @@ function FieldDetail({ field, onBack, onEditBoundary, onAddRiserToField, onDelet
   }
 
   async function handleDeleteField() {
-    if (!confirm(`Delete "${field.name}"? This cannot be undone.`)) return
+    if (!confirm(`Delete "${field.name}" and all its risers, runs, and segments? This cannot be undone.`)) return
+    const runs = await db.runs.where('fieldId').equals(field.id).toArray()
+    const runIds = runs.map(r => r.id)
+    if (runIds.length) {
+      await db.waterLogs.where('runId').anyOf(runIds).delete()
+      await db.segments.where('runId').anyOf(runIds).delete()
+      await db.tees.where('runId').anyOf(runIds).delete()
+      await db.runs.where('fieldId').equals(field.id).delete()
+    }
+    await db.undergrounds.where('fieldId').equals(field.id).delete()
+    await db.risers.where('fieldId').equals(field.id).delete()
     await db.fields.delete(field.id)
     onBack()
   }
@@ -227,13 +243,14 @@ function FieldDetail({ field, onBack, onEditBoundary, onAddRiserToField, onDelet
               onAddRunFromTee={onAddRunFromTee}
               onOpenRunLog={onOpenRunLog}
               onEditRun={onEditRun}
+              onDeleteTee={onDeleteTee}
             />
           ))}
 
           <button
             onClick={() => onAddRiserToField(field)}
-            className="w-full flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-medium transition-all active:scale-95 mt-1"
-            style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.4)', color: '#60a5fa' }}>
+            className="w-full flex items-center justify-center gap-1 py-1 rounded-md text-xs font-medium transition-all active:opacity-70 mt-1"
+            style={{ border: '1px dashed rgba(59,130,246,0.4)', color: '#60a5fa', background: 'transparent' }}>
             + Add riser
           </button>
         </div>
@@ -253,7 +270,7 @@ function FieldDetail({ field, onBack, onEditBoundary, onAddRiserToField, onDelet
 }
 
 // ── Main panel ────────────────────────────────────────────────────────────────
-export default function SidePanel({ selectedField, onSelectField, onFlyToField, onAddField, onAddFarm, onAddWell, onAddRiser, onAddRiserToField, onEditBoundary, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun }) {
+export default function SidePanel({ selectedField, onSelectField, onFlyToField, onAddField, onAddFarm, onAddWell, onAddRiser, onAddRiserToField, onEditBoundary, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun, onEditWell, onClose }) {
   const farms  = useLiveQuery(() => db.farms.toArray(), [])
   const fields = useLiveQuery(() => db.fields.toArray(), [])
   const wells  = useLiveQuery(() => db.wells.toArray(), [])
@@ -269,6 +286,11 @@ export default function SidePanel({ selectedField, onSelectField, onFlyToField, 
     try { return JSON.parse(localStorage.getItem('pipemaster-field-expanded') || '{}') } catch { return {} }
   })
   const [showSettings, setShowSettings] = useState(false)
+
+  // Wrap action handlers so the panel closes on mobile after the action fires
+  function handleEditRun(run) { onEditRun(run); onClose?.() }
+  function handleOpenRunLog(run) { onOpenRunLog(run); onClose?.() }
+  function handleAddRun(riser) { onAddRun(riser); onClose?.() }
 
   function toggleFarm(id) {
     setExpanded(prev => {
@@ -313,24 +335,77 @@ export default function SidePanel({ selectedField, onSelectField, onFlyToField, 
     fieldsByFarm[f.farmId].push(f)
   })
 
+  const farmById = {}
+  farms?.forEach(f => { farmById[f.id] = f })
+
+  async function deleteFarm(farm) {
+    if (!confirm(`Delete "${farm.name}" and everything in it? This cannot be undone.`)) return
+    const farmFields = await db.fields.where('farmId').equals(farm.id).toArray()
+    const fieldIds = farmFields.map(f => f.id)
+    if (fieldIds.length) {
+      const fieldRuns = await db.runs.where('fieldId').anyOf(fieldIds).toArray()
+      const runIds = fieldRuns.map(r => r.id)
+      if (runIds.length) {
+        await db.waterLogs.where('runId').anyOf(runIds).delete()
+        await db.segments.where('runId').anyOf(runIds).delete()
+        await db.tees.where('runId').anyOf(runIds).delete()
+        await db.runs.where('fieldId').anyOf(fieldIds).delete()
+      }
+      await db.undergrounds.where('fieldId').anyOf(fieldIds).delete()
+      await db.risers.where('fieldId').anyOf(fieldIds).delete()
+      await db.fields.where('farmId').equals(farm.id).delete()
+    }
+    await db.wells.where('farmId').equals(farm.id).delete()
+    await db.farms.delete(farm.id)
+  }
+
   async function deleteWell(well) {
-    if (!confirm(`Delete "${well.name}"?`)) return
+    if (!confirm(`Delete "${well.name}" and all its risers, runs, and history?`)) return
     const wellRisers = await db.risers.where('wellId').equals(well.id).toArray()
     const riserIds = wellRisers.map(r => r.id)
-    await db.undergrounds.where('fromType').equals('well').and(u => u.fromId === well.id).delete()
     if (riserIds.length) {
+      const riserRuns = await db.runs.where('riserId').anyOf(riserIds).toArray()
+      const runIds = riserRuns.map(r => r.id)
+      if (runIds.length) {
+        await db.waterLogs.where('runId').anyOf(runIds).delete()
+        await db.segments.where('runId').anyOf(runIds).delete()
+        await db.tees.where('runId').anyOf(runIds).delete()
+        await db.runs.where('riserId').anyOf(riserIds).delete()
+      }
       await db.undergrounds.where('fromType').equals('riser').and(u => riserIds.includes(u.fromId)).delete()
       await db.undergrounds.where('riserId').anyOf(riserIds).delete()
       await db.risers.where('wellId').equals(well.id).delete()
     }
+    await db.undergrounds.where('fromType').equals('well').and(u => u.fromId === well.id).delete()
     await db.wells.delete(well.id)
   }
 
   async function deleteRiser(riser) {
-    if (!confirm(`Delete "${riser.name}"?`)) return
+    if (!confirm(`Delete "${riser.name}" and all its runs and history?`)) return
+    const riserRuns = await db.runs.where('riserId').equals(riser.id).toArray()
+    const runIds = riserRuns.map(r => r.id)
+    if (runIds.length) {
+      await db.waterLogs.where('runId').anyOf(runIds).delete()
+      await db.segments.where('runId').anyOf(runIds).delete()
+      await db.tees.where('runId').anyOf(runIds).delete()
+      await db.runs.where('riserId').equals(riser.id).delete()
+    }
     await db.undergrounds.where('riserId').equals(riser.id).delete()
     await db.undergrounds.where('fromType').equals('riser').and(u => u.fromId === riser.id).delete()
     await db.risers.delete(riser.id)
+  }
+
+  async function deleteTee(tee) {
+    if (!confirm(`Delete tee "${tee.name}"?`)) return
+    const teeRuns = await db.runs.where('teeId').equals(tee.id).toArray()
+    const runIds = teeRuns.map(r => r.id)
+    if (runIds.length) {
+      await db.waterLogs.where('runId').anyOf(runIds).delete()
+      await db.segments.where('runId').anyOf(runIds).delete()
+      await db.tees.where('runId').anyOf(runIds).delete()
+      await db.runs.where('teeId').equals(tee.id).delete()
+    }
+    await db.tees.delete(tee.id)
   }
 
   // FieldDetail mode — triggered by ⚙ icon on a field row, or by tapping a field polygon on the map
@@ -344,10 +419,11 @@ export default function SidePanel({ selectedField, onSelectField, onFlyToField, 
           onEditBoundary={(f) => { onSelectField(null); onEditBoundary(f) }}
           onAddRiserToField={onAddRiserToField}
           onDeleteRiser={deleteRiser}
-          onAddRun={onAddRun}
+          onAddRun={handleAddRun}
           onAddRunFromTee={onAddRunFromTee}
-          onOpenRunLog={onOpenRunLog}
-          onEditRun={onEditRun}
+          onOpenRunLog={handleOpenRunLog}
+          onEditRun={handleEditRun}
+          onDeleteTee={deleteTee}
         />
       </div>
     )
@@ -357,10 +433,10 @@ export default function SidePanel({ selectedField, onSelectField, onFlyToField, 
     <div className="h-full flex flex-col overflow-hidden"
          style={{ width: '100%', background: '#111c2a', borderRight: '1px solid rgba(255,255,255,0.07)' }}>
 
-      <div className="flex items-center justify-between px-4 py-3"
+      <div id="pm-panel-header" className="flex items-center justify-between px-4 py-3"
            style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <span className="text-green-400 font-semibold text-sm uppercase tracking-wider">Farms & Fields</span>
-        <button onClick={onAddFarm}
+        <button id="pm-add-farm-btn" onClick={onAddFarm}
                 className="w-7 h-7 rounded-full bg-green-500 hover:bg-green-400 flex items-center justify-center text-white text-lg font-light leading-none transition-all">
           +
         </button>
@@ -382,12 +458,18 @@ export default function SidePanel({ selectedField, onSelectField, onFlyToField, 
           return (
             <div key={farm.id} className="mb-0.5">
               {/* Farm header */}
-              <button onClick={() => toggleFarm(farm.id)}
-                      className="w-full flex items-center gap-2 px-4 py-2.5 hover:bg-white/5 transition-all text-left">
-                <span className="text-gray-500 text-xs w-3">{open ? '▼' : '▶'}</span>
-                <span className="text-white font-medium text-sm flex-1 truncate">{farm.name}</span>
-                <span className="text-gray-600 text-xs">{farmFields.length}</span>
-              </button>
+              <div className="flex items-center group hover:bg-white/5 transition-all">
+                <button onClick={() => toggleFarm(farm.id)}
+                        className="flex items-center gap-2 px-4 py-2.5 text-left flex-1 min-w-0">
+                  <span className="text-gray-500 text-xs w-3">{open ? '▼' : '▶'}</span>
+                  <span className="text-white font-medium text-sm flex-1 truncate">{farm.name}</span>
+                  <span className="text-gray-600 text-xs">{farmFields.length}</span>
+                </button>
+                <button onClick={() => deleteFarm(farm)}
+                        className="opacity-0 group-hover:opacity-100 text-red-800 hover:text-red-500 text-sm leading-none transition-all px-3 py-2.5 flex-shrink-0">
+                  ×
+                </button>
+              </div>
 
               {open && (
                 <div className="pb-1">
@@ -423,7 +505,7 @@ export default function SidePanel({ selectedField, onSelectField, onFlyToField, 
                           <button
                             onClick={() => { onFlyToField(field); onSelectField(field) }}
                             title="Field details"
-                            className="opacity-0 group-hover:opacity-100 text-gray-600 hover:text-blue-400 text-sm transition-all px-2 py-2 flex-shrink-0">
+                            className="text-gray-500 hover:text-blue-400 active:text-blue-300 text-base transition-all px-2 py-1 flex-shrink-0">
                             ⚙
                           </button>
                         </div>
@@ -434,10 +516,11 @@ export default function SidePanel({ selectedField, onSelectField, onFlyToField, 
                             field={field}
                             onDeleteRiser={deleteRiser}
                             onAddRiserToField={onAddRiserToField}
-                            onAddRun={onAddRun}
+                            onAddRun={handleAddRun}
                             onAddRunFromTee={onAddRunFromTee}
-                            onOpenRunLog={onOpenRunLog}
-                            onEditRun={onEditRun}
+                            onOpenRunLog={handleOpenRunLog}
+                            onEditRun={handleEditRun}
+                            onDeleteTee={deleteTee}
                           />
                         )}
                       </div>
@@ -446,94 +529,97 @@ export default function SidePanel({ selectedField, onSelectField, onFlyToField, 
 
                   <div className="pl-8 pr-4 mt-1 mb-2">
                     <button onClick={() => onAddField(farm)}
-                            className="w-full flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-all active:scale-95"
-                            style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.4)', color: '#4ade80' }}>
+                            className="w-full flex items-center justify-center gap-1 py-1 rounded-md text-xs font-medium transition-all active:opacity-70"
+                            style={{ border: '1px dashed rgba(34,197,94,0.4)', color: '#4ade80', background: 'transparent' }}>
                       + Add field
                     </button>
                   </div>
 
-                  {/* Wells */}
-                  <div className="mt-1 pl-9 pr-4 pb-1" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                    <div className="flex items-center justify-between py-1.5">
-                      <span className="text-gray-600 text-xs uppercase tracking-wider">Wells</span>
-                      <button onClick={() => onAddWell(farm)}
-                              className="px-2.5 py-1 rounded-md text-xs font-medium transition-all active:scale-95"
-                              style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.35)', color: '#60a5fa' }}>
-                        + Add well
-                      </button>
-                    </div>
-                    {(wellsByFarm[farm.id] || []).map(well => {
-                      const wellOpen = expandedWells[well.id] === true
-                      const wellRisers = risersByWell[well.id] || []
-                      return (
-                        <div key={well.id}>
-                          {/* Well row */}
-                          <button onClick={() => toggleWell(well.id)}
-                                  className="w-full flex items-center gap-2 py-1.5 group text-left">
-                            <span className="text-gray-600 text-[10px] w-2.5 flex-shrink-0">{wellOpen ? '▼' : '▶'}</span>
-                            <span className="text-base leading-none flex-shrink-0">
-                              {well.type === 'electric' ? '⚡' : '⛽'}
-                            </span>
-                            <span className="text-gray-300 text-sm truncate flex-1">{well.name}</span>
-                            <span className="text-gray-600 text-xs flex-shrink-0">{wellRisers.length}</span>
-                            <span className="text-xs flex-shrink-0"
-                                  style={{ color: well.type === 'electric' ? '#3b82f6' : '#f97316' }}>
-                              {well.type === 'electric' ? 'Elec' : 'Diesel'}
-                            </span>
-                            <span
-                              onClick={(e) => { e.stopPropagation(); deleteWell(well) }}
-                              className="opacity-0 group-hover:opacity-100 text-red-700 hover:text-red-500 text-xs leading-none transition-all px-1 flex-shrink-0">
-                              ×
-                            </span>
-                          </button>
-                          {/* Risers under this well */}
-                          {wellOpen && (
-                            <div className="pl-4 mb-1">
-                              {wellRisers.map(riser => (
-                                <div key={riser.id} className="flex items-center gap-2 py-1 group">
-                                  <span className="text-gray-500 text-xs">◆</span>
-                                  <span className="text-gray-400 text-xs truncate flex-1">{riser.name}</span>
-                                  <button onClick={() => deleteRiser(riser)}
-                                          className="opacity-0 group-hover:opacity-100 text-red-700 hover:text-red-500 text-xs leading-none transition-all px-1">
-                                    ×
-                                  </button>
-                                </div>
-                              ))}
-                              {!wellRisers.length && (
-                                <div className="text-gray-700 text-xs italic py-1">No risers yet</div>
-                              )}
-                              <button onClick={() => onAddRiser(well)}
-                                      className="mt-1 w-full flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-all active:scale-95"
-                                      style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.4)', color: '#60a5fa' }}>
-                                + Add riser
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                    {!(wellsByFarm[farm.id]?.length) && (
-                      <div className="text-gray-700 text-xs italic py-1">No wells yet</div>
-                    )}
-                  </div>
                 </div>
               )}
             </div>
           )
         })}
+
+        {/* ── Wells section ─────────────────────────────────────────────── */}
+        {farms?.length > 0 && (
+          <div className="mt-2" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+            <div className="flex items-center justify-between px-4 py-2.5">
+              <span className="text-blue-400 font-semibold text-xs uppercase tracking-wider">Wells</span>
+              <button onClick={() => onAddWell(null)}
+                      className="px-2.5 py-1 rounded-md text-xs font-medium transition-all active:scale-95"
+                      style={{ background: 'rgba(59,130,246,0.1)', border: '1px solid rgba(59,130,246,0.35)', color: '#60a5fa' }}>
+                + Add well
+              </button>
+            </div>
+
+            {!wells?.length && (
+              <div className="px-4 pb-3 text-gray-700 text-xs italic">No wells yet</div>
+            )}
+
+            {wells?.map(well => {
+              const wellOpen = expandedWells[well.id] === true
+              const wellRisers = risersByWell[well.id] || []
+              const farmName = farmById[well.farmId]?.name
+              return (
+                <div key={well.id} className="mb-0.5">
+                  <div className="flex items-center gap-1 px-3 py-1.5 group hover:bg-white/5 transition-all">
+                    <button onClick={() => toggleWell(well.id)}
+                            className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                      <span className="text-gray-600 text-[10px] w-2.5 flex-shrink-0">{wellOpen ? '▼' : '▶'}</span>
+                      <span className="text-base leading-none flex-shrink-0">{well.type === 'electric' ? '⚡' : '⛽'}</span>
+                      <span className="text-gray-300 text-sm truncate flex-1">{well.name}</span>
+                      {well.gpm && <span className="text-gray-600 text-xs flex-shrink-0">{well.gpm}gpm</span>}
+                      {farmName && <span className="text-gray-700 text-xs truncate flex-shrink-0 max-w-[60px]">{farmName}</span>}
+                    </button>
+                    <button onClick={() => onEditWell?.(well)}
+                            className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-blue-400 text-sm transition-all px-1 flex-shrink-0">
+                      ⚙
+                    </button>
+                    <button onClick={() => deleteWell(well)}
+                            className="opacity-0 group-hover:opacity-100 text-red-700 hover:text-red-500 text-xs leading-none transition-all px-1 flex-shrink-0">
+                      ×
+                    </button>
+                  </div>
+
+                  {wellOpen && (
+                    <div className="pl-8 pr-4 pb-2">
+                      {(well.motorModel || well.rpm || well.airFilter || well.fuelFilter || well.oilFilter) && (
+                        <div className="mb-2 flex flex-col gap-0.5 py-1" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                          {well.motorModel && <span className="text-xs text-gray-500">⚙ {well.motorModel}{well.rpm ? ` · ${well.rpm} rpm` : ''}</span>}
+                          {!well.motorModel && well.rpm && <span className="text-xs text-gray-500">{well.rpm} rpm</span>}
+                          {well.airFilter  && <span className="text-xs text-gray-600">Air: {well.airFilter}</span>}
+                          {well.fuelFilter && <span className="text-xs text-gray-600">Fuel: {well.fuelFilter}</span>}
+                          {well.oilFilter  && <span className="text-xs text-gray-600">Oil: {well.oilFilter}</span>}
+                        </div>
+                      )}
+                      {wellRisers.map(riser => (
+                        <div key={riser.id} className="flex items-center gap-2 py-1 group">
+                          <span className="text-gray-500 text-xs">◆</span>
+                          <span className="text-gray-400 text-xs truncate flex-1">{riser.name}</span>
+                          <button onClick={() => deleteRiser(riser)}
+                                  className="opacity-0 group-hover:opacity-100 text-red-700 hover:text-red-500 text-xs leading-none transition-all px-1">
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      {!wellRisers.length && <div className="text-gray-700 text-xs italic py-1">No risers yet</div>}
+                      <button onClick={() => onAddRiser(well)}
+                              className="mt-1 w-full flex items-center justify-center gap-1 py-1 rounded-md text-xs font-medium transition-all active:opacity-70"
+                              style={{ border: '1px dashed rgba(59,130,246,0.4)', color: '#60a5fa', background: 'transparent' }}>
+                        + Add riser
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
 
-      {farms?.length > 0 && (
-        <div className="p-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-          <button onClick={onAddFarm}
-                  className="w-full py-2 rounded-lg text-sm text-green-500 hover:text-green-400 border border-green-500/20 hover:border-green-500/40 transition-all">
-            + New Farm
-          </button>
-        </div>
-      )}
-
       <div className="p-3" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-        <button onClick={() => setShowSettings(true)}
+        <button id="pm-panel-settings" onClick={() => setShowSettings(true)}
                 className="w-full flex items-center justify-between py-2.5 px-3 rounded-lg text-sm text-gray-300 hover:text-white border border-white/10 hover:border-white/25 transition-all">
           <span className="flex items-center gap-2">⚙ Settings</span>
           <SyncStatusDot />

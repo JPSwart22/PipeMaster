@@ -158,7 +158,9 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
 
   async function handleDelete() {
     if (!confirm(`Delete run "${run.name}"? This cannot be undone.`)) return
+    await db.waterLogs.where('runId').equals(run.id).delete()
     await db.segments.where('runId').equals(run.id).delete()
+    await db.tees.where('runId').equals(run.id).delete()
     await db.runs.delete(run.id)
     onSaved()
   }
@@ -249,14 +251,20 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
         </div>
 
         {/* Segment re-import */}
-        <label className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-sm font-medium transition-all ${
-          importing
-            ? 'text-gray-500 border-white/10 cursor-not-allowed'
-            : 'border-blue-500/40 text-blue-400 cursor-pointer hover:bg-blue-500/10'
-        }`}>
-          {importing ? '⏳ Reading schematic…' : '📎 Re-import segments from Delta Plastics'}
-          <input type="file" accept="image/*" className="hidden" disabled={importing} onChange={handleImport} />
-        </label>
+        <div className="flex gap-1.5">
+          <label className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl border text-sm font-medium transition-all ${
+            importing ? 'text-gray-500 border-white/10 cursor-not-allowed' : 'border-blue-500/40 text-blue-400 cursor-pointer hover:bg-blue-500/10'
+          }`}>
+            {importing ? '⏳' : '📷 Snap schematic'}
+            <input type="file" accept="image/*" capture="environment" className="hidden" disabled={importing} onChange={handleImport} />
+          </label>
+          <label className={`flex-1 flex items-center justify-center gap-1.5 py-3 rounded-xl border text-sm font-medium transition-all ${
+            importing ? 'text-gray-500 border-white/10 cursor-not-allowed' : 'border-blue-500/40 text-blue-400 cursor-pointer hover:bg-blue-500/10'
+          }`}>
+            {importing ? '⏳' : '📁 File / PDF'}
+            <input type="file" accept="image/*,application/pdf" className="hidden" disabled={importing} onChange={handleImport} />
+          </label>
+        </div>
         {importError && (
           <div className="text-xs text-red-400 -mt-3 text-center">{importError}</div>
         )}

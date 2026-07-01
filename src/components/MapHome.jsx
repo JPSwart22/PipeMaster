@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { MapContainer, TileLayer, CircleMarker, Circle, Polyline, useMap, useMapEvents } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Circle, Marker, Polyline, useMap, useMapEvents } from 'react-leaflet'
 import { useLiveQuery } from 'dexie-react-hooks'
 import L from 'leaflet'
 import '../lib/leafletIcons'
@@ -12,6 +12,7 @@ import RiserMarker from './RiserMarker'
 import TeeMarker from './TeeMarker'
 import UndergroundLine from './UndergroundLine'
 import PipeRunLine from './PipeRunLine'
+import { startTour } from '../lib/appTour'
 import AddFarmSheet from './AddFarmSheet'
 import SaveFieldSheet from './SaveFieldSheet'
 import SaveWellSheet from './SaveWellSheet'
@@ -20,6 +21,8 @@ import SaveRunSheet from './SaveRunSheet'
 import EditRunSheet from './EditRunSheet'
 import RunLogSheet from './RunLogSheet'
 import SidePanel from './SidePanel'
+import EditWellSheet from './EditWellSheet'
+import FlagSheet from './FlagSheet'
 
 // ── Single-tap catcher for placing a tee marker ───────────────────────────────
 function TeePlacementCatcher({ onPlace }) {
@@ -36,6 +39,21 @@ function HoleMarkCatcher({ onTap }) {
   })
   return null
 }
+
+// ── Single-tap catcher for dropping a flag ────────────────────────────────────
+function FlagPlacementCatcher({ onPlace }) {
+  useMapEvents({
+    click(e) { onPlace([e.latlng.lat, e.latlng.lng]) },
+  })
+  return null
+}
+
+const FLAG_ICON = L.divIcon({
+  className: '',
+  html: '<div style="font-size:22px;line-height:1;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.9))">🚩</div>',
+  iconSize: [22, 22],
+  iconAnchor: [2, 22],
+})
 
 const DELTA_CENTER = [33.45, -90.95]
 
@@ -98,6 +116,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
   const runs        = useLiveQuery(() => db.runs.toArray(), [])
   const allSegments = useLiveQuery(() => db.segments.toArray(), [])
   const tees        = useLiveQuery(() => db.tees.toArray(), [])
+  const flags       = useLiveQuery(() => db.flags.toArray(), [])
   const mapRef = useRef(null)
 
   const [drawMode, setDrawMode]               = useState(null)
@@ -113,6 +132,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
   const [activeRiserForRun, setActiveRiserForRun]     = useState(null)
   const [editingRun, setEditingRun]                   = useState(null)
   const [loggingRun, setLoggingRun]                   = useState(null)
+  const [editingWell, setEditingWell]                 = useState(null)
   const [sheet, setSheet]                             = useState(null)
   const [panelOpen, setPanelOpen]                 = useState(true)
   const [drawingForRun, setDrawingForRun]         = useState(false)
@@ -125,11 +145,20 @@ export default function MapHome({ onSwitchToFieldMode }) {
   const [markingPendingFt, setMarkingPendingFt]   = useState(null)
   const [markingFurrowPattern, setMarkingFurrowPattern] = useState('every')
   const [markedSegsResult, setMarkedSegsResult]   = useState(null) // { lineIndex, segs, at }
+  const [placingFlag, setPlacingFlag]             = useState(false)
+  const [flagSheetData, setFlagSheetData]         = useState(null) // { lat, lon } for new, or flag object for viewing
 
   const selectedField = fields?.find(f => f.id === selectedFieldId) ?? null
   const detailField   = fields?.find(f => f.id === detailFieldId)   ?? null
   const isDrawing = drawMode !== null
-  const suppressFieldClick = isDrawing || !!placingTeeForRun || !!markingHoles
+  const suppressFieldClick = isDrawing || !!placingTeeForRun || !!markingHoles || placingFlag
+
+  function handleStartTour() {
+    setFabMenuOpen(false)
+    setSheet(null)
+    setDetailFieldId(null)
+    startTour({ setPanelOpen })
+  }
 
   function flyTo(boundary) {
     if (!mapRef.current || !boundary?.length) return
@@ -152,24 +181,10 @@ export default function MapHome({ onSwitchToFieldMode }) {
   function handleQuickAdd(type) {
     setFabMenuOpen(false)
     if (type === 'farm') { setSheet('addFarm'); return }
+    if (type === 'flag') { setPlacingFlag(true); setPanelOpen(false); return }
     if (!farms?.length) { setSheet('addFarm'); return }
-
-    if (type === 'field') {
-      setActiveFarm(farms[0])
-      setDrawMode('field')
-      setPoints([])
-      setPanelOpen(false)
-      return
-    }
     if (type === 'well') {
-      const { farm, field } = quickAddTarget()
-      handleAddWell(farm, field)
-      return
-    }
-    if (type === 'riser') {
-      const { field } = quickAddTarget()
-      if (!field) return // no field anywhere yet to attach a riser to
-      handleAddRiserToField(field)
+      handleAddWell(null) // no farm context — SaveWellSheet will show farm picker
     }
   }
 
@@ -184,7 +199,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
   // ── Drawing ───────────────────────────────────────────────────────────────
   function handleMapTap(latlng) {
     if (drawMode === 'well') {
-      setPendingWell({ farmId: activeFarm?.id, fieldId: activeFarm?._wellFieldId ?? null, lat: latlng[0], lon: latlng[1] })
+      setPendingWell({ farmId: activeFarm?.id ?? null, lat: latlng[0], lon: latlng[1] })
       setDrawMode(null)
       setSheet('saveWell')
       return
@@ -253,8 +268,8 @@ export default function MapHome({ onSwitchToFieldMode }) {
   }
 
   // ── Well placement ────────────────────────────────────────────────────────
-  function handleAddWell(farm, field) {
-    setActiveFarm({ ...farm, _wellFieldId: field?.id ?? null })
+  function handleAddWell(farm) {
+    setActiveFarm(farm ?? null)
     setDrawMode('well')
     setPanelOpen(false)
   }
@@ -453,8 +468,14 @@ export default function MapHome({ onSwitchToFieldMode }) {
             )
           })}
 
-          {wells?.map(w => <WellMarker key={w.id} well={w} />)}
+          {wells?.map(w => <WellMarker key={w.id} well={w} onClick={well => setEditingWell(well)} />)}
           {risers?.map(r => <RiserMarker key={r.id} riser={r} />)}
+
+          {flags?.map(flag => (
+            <Marker key={flag.id} position={[flag.lat, flag.lon]} icon={FLAG_ICON}
+                    eventHandlers={{ click: () => setFlagSheetData(flag) }} />
+          ))}
+          {placingFlag && <FlagPlacementCatcher onPlace={pos => { setPlacingFlag(false); setFlagSheetData({ lat: pos[0], lon: pos[1] }) }} />}
 
           {isDrawing && (
             <DrawMode points={points} onMapClick={handleMapTap} onPointDrag={handlePointDrag} onInsertPoint={handleInsertPoint}
@@ -483,21 +504,52 @@ export default function MapHome({ onSwitchToFieldMode }) {
         <div className="absolute top-0 left-0 right-0 z-[1000] flex items-center justify-between px-4 py-3"
              style={{ background: 'linear-gradient(to bottom, rgba(15,25,35,0.95), transparent)' }}>
           <div className="flex items-center gap-3">
+            {/* Hamburger — mobile only */}
+            <button id="pm-hamburger" onClick={() => setPanelOpen(o => !o)}
+                    className="md:hidden flex items-center justify-center w-10 h-10 rounded-xl text-gray-300 active:bg-white/10 transition-colors"
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+              <span className="text-lg">☰</span>
+            </button>
             <span className="text-green-400 font-bold text-lg tracking-wide">PIPEMASTER</span>
-            <span className="text-xs text-gray-600 uppercase tracking-widest border border-white/10 rounded px-2 py-0.5">Dev Mode</span>
+            <span className="text-xs text-gray-600 uppercase tracking-widest border border-white/10 rounded px-2 py-0.5 hidden md:inline">Dev Mode</span>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-500 uppercase tracking-widest">
-              {drawMode === 'edit' ? 'Edit Boundary' : drawMode === 'field' ? 'Draw Field' : drawMode === 'well' ? 'Place Well' : drawMode === 'riser' ? 'Place Riser' : drawMode === 'run' ? 'Draw Run' : 'Map View'}
+              {placingFlag ? 'Drop Flag' : drawMode === 'edit' ? 'Edit Boundary' : drawMode === 'field' ? 'Draw Field' : drawMode === 'well' ? 'Place Well' : drawMode === 'riser' ? 'Place Riser' : drawMode === 'run' ? 'Draw Run' : 'Map View'}
             </span>
+            <button id="pm-tour-btn" onClick={() => handleStartTour()}
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-white text-sm font-bold transition-colors"
+                    style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}
+                    title="Take a tour">
+              ?
+            </button>
             {onSwitchToFieldMode && (
-              <button onClick={onSwitchToFieldMode}
+              <button id="pm-fieldmode-btn" onClick={onSwitchToFieldMode}
                       className="flex items-center gap-1.5 text-sm font-semibold text-white bg-green-600 hover:bg-green-500 active:bg-green-700 rounded-xl px-4 py-2.5 transition-colors shadow-lg">
                 📍 Field Mode
               </button>
             )}
           </div>
         </div>
+
+        {/* Flag placement banner */}
+        {placingFlag && (
+          <>
+            <div className="absolute top-14 left-0 right-0 z-[1000] flex justify-center pointer-events-none">
+              <div className="border text-sm px-4 py-2 rounded-full"
+                   style={{ background: 'rgba(120,70,0,0.85)', borderColor: 'rgba(234,179,8,0.5)', color: '#fde68a' }}>
+                Tap the map to drop your flag
+              </div>
+            </div>
+            <div className="absolute bottom-8 left-0 right-0 z-[1000] flex justify-center px-6">
+              <button onClick={() => setPlacingFlag(false)}
+                      className="flex-1 py-3 rounded-xl font-semibold text-gray-300 border border-white/20 hover:border-white/40 transition-all"
+                      style={{ background: 'rgba(15,25,35,0.9)' }}>
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
 
         {/* Tee placement banner */}
         {placingTeeForRun && (
@@ -590,6 +642,16 @@ export default function MapHome({ onSwitchToFieldMode }) {
           </div>
         )}
 
+        {/* Live distance counter while drawing a run */}
+        {isDrawing && drawMode === 'run' && points.length >= 2 && (
+          <div className="absolute bottom-24 left-0 right-0 z-[1000] flex justify-center pointer-events-none">
+            <div id="pm-draw-distance" className="border text-base px-5 py-2 rounded-full font-mono tabular-nums font-semibold"
+                 style={{ background: 'rgba(124,45,18,0.92)', borderColor: 'rgba(249,115,22,0.55)', color: '#fdba74', backdropFilter: 'blur(4px)' }}>
+              {Math.round(pathTotalFt(points)).toLocaleString()} ft
+            </div>
+          </div>
+        )}
+
         {/* Draw controls */}
         {isDrawing && (drawMode === 'well' || drawMode === 'riser') && (
           <div className="absolute bottom-8 left-0 right-0 z-[1000] flex justify-center px-6">
@@ -631,9 +693,8 @@ export default function MapHome({ onSwitchToFieldMode }) {
               <div className="absolute bottom-28 right-5 z-[1000] flex flex-col items-end gap-2.5">
                 {[
                   { type: 'farm',  label: 'Farm',  icon: '🚜', color: '#22c55e' },
-                  { type: 'field', label: 'Field',  icon: '◧', color: '#a855f7' },
-                  { type: 'well',  label: 'Well',   icon: '⚡', color: '#3b82f6' },
-                  { type: 'riser', label: 'Riser',  icon: '◆', color: '#f97316' },
+                  { type: 'well',  label: 'Well',  icon: '⚡', color: '#3b82f6' },
+                  { type: 'flag',  label: 'Flag',  icon: '🚩', color: '#eab308' },
                 ].map(item => (
                   <button key={item.type} onClick={() => handleQuickAdd(item.type)}
                           className="flex items-center gap-2.5 pl-4 pr-3 py-2.5 rounded-full shadow-lg transition-all active:scale-95"
@@ -647,7 +708,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
                 ))}
               </div>
             )}
-            <button onClick={handleFAB}
+            <button id="pm-fab" onClick={handleFAB}
                     className="absolute bottom-8 right-5 z-[1000] w-16 h-16 rounded-full bg-green-500 hover:bg-green-400 active:scale-95 transition-all shadow-lg flex items-center justify-center text-white"
                     style={{ fontSize: 30, fontWeight: 300, transform: fabMenuOpen ? 'rotate(45deg)' : 'none', transition: 'transform 0.2s' }}>
               +
@@ -655,9 +716,9 @@ export default function MapHome({ onSwitchToFieldMode }) {
           </>
         )}
 
-        {/* Panel toggle */}
+        {/* Panel toggle — desktop edge strip only; mobile uses the top-bar hamburger */}
         <button onClick={() => setPanelOpen(o => !o)}
-                className="absolute top-1/2 z-[1000] flex items-center justify-center text-gray-400 hover:text-white transition-all"
+                className="absolute top-1/2 z-[1000] hidden md:flex items-center justify-center text-gray-400 hover:text-white transition-all"
                 style={{ left: 0, transform: 'translateY(-50%)', background: '#111c2a', border: '1px solid rgba(255,255,255,0.07)', borderLeft: 'none', borderRadius: '0 6px 6px 0', width: 20, height: 48, fontSize: 10 }}>
           {panelOpen ? '‹' : '›'}
         </button>
@@ -670,7 +731,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
         )}
         {sheet === 'saveWell' && pendingWell && (
           <SaveWellSheet
-            farmId={pendingWell.farmId} fieldId={pendingWell.fieldId}
+            farmId={pendingWell.farmId}
             lat={pendingWell.lat} lon={pendingWell.lon}
             onClose={() => { setSheet(null); setPendingWell(null); setPanelOpen(true) }}
             onSaved={() => { setSheet(null); setPendingWell(null); setPanelOpen(true) }}
@@ -724,6 +785,23 @@ export default function MapHome({ onSwitchToFieldMode }) {
             onEditDetails={() => handleEditRun(loggingRun)}
           />
         )}
+        {editingWell && (
+          <EditWellSheet
+            well={wells?.find(w => w.id === editingWell.id) ?? editingWell}
+            onClose={() => setEditingWell(null)}
+            onSaved={() => setEditingWell(null)}
+          />
+        )}
+        {flagSheetData && (
+          <FlagSheet
+            flag={flagSheetData.id ? flagSheetData : null}
+            lat={flagSheetData.lat}
+            lon={flagSheetData.lon}
+            onClose={() => setFlagSheetData(null)}
+            onSaved={() => { setFlagSheetData(null); setPanelOpen(true) }}
+            onDeleted={() => setFlagSheetData(null)}
+          />
+        )}
       </div>
 
       {panelOpen && (
@@ -732,7 +810,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
               panel is narrow and the map underneath should stay fully clickable. */}
           <div className="absolute inset-0 z-[1400] md:hidden" style={{ background: 'rgba(0,0,0,0.35)' }}
                onClick={() => setPanelOpen(false)} />
-          <div className="absolute top-0 left-0 z-[1500]" style={{ height: '100%', width: 'min(260px, 88vw)' }}>
+          <div className="absolute top-0 left-0 z-[1500]" style={{ height: '100%', width: '100vw', maxWidth: 300 }}>
             <SidePanel
               selectedField={detailField}
               onSelectField={(f) => { setDetailFieldId(f?.id ?? null); setSelectedFieldId(f?.id ?? null); if (f) { flyTo(f.boundary) } }}
@@ -747,6 +825,8 @@ export default function MapHome({ onSwitchToFieldMode }) {
               onAddRunFromTee={handleAddRunFromTee}
               onEditRun={handleEditRun}
               onOpenRunLog={handleOpenRunLog}
+              onEditWell={(well) => setEditingWell(well)}
+              onClose={() => setPanelOpen(false)}
             />
           </div>
         </>

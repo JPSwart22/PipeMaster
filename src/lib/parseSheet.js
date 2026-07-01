@@ -1,10 +1,3 @@
-import Anthropic from '@anthropic-ai/sdk'
-
-const client = new Anthropic({
-  apiKey: import.meta.env.VITE_ANTHROPIC_API_KEY,
-  dangerouslyAllowBrowser: true,
-})
-
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -14,81 +7,20 @@ function fileToBase64(file) {
   })
 }
 
-// geoContext = { fieldBoundary: [[lat,lon],...], riserLat, riserLon }
 export async function parsePipeSheet(imageFile, geoContext = null) {
-  const base64    = await fileToBase64(imageFile)
-  const mediaType = imageFile.type || 'image/jpeg'
+  const imageBase64 = await fileToBase64(imageFile)
+  const mediaType   = imageFile.type || 'image/jpeg'
 
-  let pathInstruction = ''
-  if (geoContext?.fieldBoundary?.length && geoContext.riserLat != null) {
-    const { fieldBoundary, riserLat, riserLon } = geoContext
-    pathInstruction = `
-
-The field shown in the satellite map image has already been GPS-mapped. Use these coordinates to georeference the pipe path:
-- Riser (pipe start point): [${riserLat.toFixed(6)}, ${riserLon.toFixed(6)}]
-- Field boundary polygon: ${JSON.stringify(fieldBoundary.map(p => [+p[0].toFixed(6), +p[1].toFixed(6)]))}
-
-The field outline visible in the satellite image on this sheet IS this boundary polygon — use it as your reference frame even if the boundary is not perfectly drawn.
-
-In the satellite map:
-- The PIPE is drawn as a blue line — trace this for the path
-- Yellow lines/shading show the furrows being watered (not the pipe)
-- A yellow arrow shows the flow direction along the furrows (not the pipe route)
-
-Trace the blue pipe line from the riser and return its path as GPS coordinates.
-
-Include "pathWaypoints": [[lat, lon], ...] in your response — start with the riser coordinates, then 4–8 waypoints along the blue pipe route to its end. Only include major direction changes, not every small step.`
-  }
-
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 2048,
-    messages: [{
-      role: 'user',
-      content: [
-        {
-          type: 'image',
-          source: { type: 'base64', media_type: mediaType, data: base64 },
-        },
-        {
-          type: 'text',
-          text: `This is a Delta Plastics Pipe Planner sheet for polypipe irrigation in the Mississippi Delta.
-
-Extract every pipe run and all its segments. Return ONLY a raw JSON object — no markdown, no code fences, no explanation.
-
-{
-  "farm": "string or null",
-  "field": "string or null",
-  "flowRateGPM": number or null,
-  "pipeLengthFt": number or null,
-  "pathWaypoints": [[lat, lon], ...] or null,
-  "runs": [
-    {
-      "name": "run name e.g. Inline Tee Left, Inline Tee Right, Main Run",
-      "segments": [
-        {
-          "startFt": 0,
-          "endFt": 216,
-          "holeSize": "1/4\\"",
-          "furrowCount": 34
-        }
-      ]
-    }
-  ]
-}
-
-Important:
-- Each segment is one row in the table (one hole size, one distance range)
-- Supply sections with no hole size should be omitted
-- holeSize must be exactly as printed e.g. "5/8\\"", "9/16\\"", "1/2\\""
-- startFt and endFt are the distance range from the table
-- furrowCount is required — read it from the Furrow Count column, never omit or set to null${pathInstruction}`,
-        },
-      ],
-    }],
+  const res = await fetch('/api/parse-sheet', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ imageBase64, mediaType, geoContext }),
   })
 
-  const raw     = response.content[0].text.trim()
-  const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-  return JSON.parse(cleaned)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Schematic API error ${res.status}: ${text}`)
+  }
+
+  return res.json()
 }

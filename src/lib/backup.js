@@ -1,6 +1,6 @@
 import db from './db'
 
-export const TABLES = ['farms', 'fields', 'zones', 'wells', 'risers', 'undergrounds', 'runs', 'segments', 'notes', 'waterLogs', 'schematics', 'tees']
+export const TABLES = ['farms', 'fields', 'zones', 'wells', 'risers', 'undergrounds', 'runs', 'segments', 'notes', 'waterLogs', 'tees', 'flags']
 
 export async function getAllTablesData() {
   const tables = {}
@@ -10,13 +10,20 @@ export async function getAllTablesData() {
   return tables
 }
 
+export async function clearAllTablesData() {
+  const existing = TABLES.filter(t => db[t])
+  await db.transaction('rw', existing.map(t => db[t]), async () => {
+    for (const t of existing) await db[t].clear()
+  })
+}
+
 // Replaces all local data with the given table contents
 export async function restoreAllTablesData(tables) {
-  await db.transaction('rw', TABLES.map(t => db[t]), async () => {
-    for (const t of TABLES) {
-      if (!tables[t]) continue
+  const existing = TABLES.filter(t => db[t])
+  await db.transaction('rw', existing.map(t => db[t]), async () => {
+    for (const t of existing) {
       await db[t].clear()
-      await db[t].bulkAdd(tables[t])
+      if (tables[t]?.length) await db[t].bulkAdd(tables[t])
     }
   })
 }

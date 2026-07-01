@@ -167,6 +167,16 @@ export default function SettingsSheet({ onClose }) {
           )}
         </div>
 
+        <button
+          onClick={() => {
+            localStorage.removeItem('pipemaster-intro-seen')
+            window.dispatchEvent(new CustomEvent('pipemaster:show-intro'))
+            onClose()
+          }}
+          className="w-full py-2.5 rounded-xl text-sm text-blue-400 hover:text-blue-300 border border-blue-900/40 hover:border-blue-700/40 transition-all">
+          View intro again
+        </button>
+
         <button onClick={signOut}
                 className="w-full py-2.5 rounded-xl text-sm text-red-400 hover:text-red-300 border border-red-900/40 hover:border-red-700/40 transition-all">
           Sign out

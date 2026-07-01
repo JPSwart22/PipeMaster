@@ -3,8 +3,8 @@ import { getAllTablesData, restoreAllTablesData } from './backup'
 
 const CODE_KEY = 'pipemaster-farm-code'
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no 0/O/1/I to avoid confusion read aloud
-const PUSH_DEBOUNCE_MS = 1500
-const ECHO_GUARD_MS = 4000 // skip realtime pulls that are just our own push reflecting back
+const PUSH_DEBOUNCE_MS = 300
+const ECHO_GUARD_MS = 1500 // skip realtime pulls that are just our own push reflecting back
 
 export function getSavedFarmCode() {
   return localStorage.getItem(CODE_KEY)
@@ -81,6 +81,12 @@ let autoSyncCleanup = null
 export function startAutoSync(code) {
   if (autoSyncCleanup) return autoSyncCleanup
   let pushTimer = null
+
+  // Pull latest snapshot immediately on startup — ensures fresh logins and
+  // newly-joined members always see current farm data without waiting for a write
+  pullFromCloud(code).then(() => {
+    setSyncStatus({ state: 'synced', lastSyncedAt: new Date(), error: null })
+  }).catch(() => { /* no snapshot yet — owner hasn't pushed, that's fine */ })
 
   function scheduleDebouncedPush() {
     clearTimeout(pushTimer)

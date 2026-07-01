@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { MapContainer, TileLayer, CircleMarker, Circle, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Circle, Marker, useMap } from 'react-leaflet'
 import { useLiveQuery } from 'dexie-react-hooks'
 import L from 'leaflet'
 import '../lib/leafletIcons'
@@ -14,8 +14,17 @@ import UndergroundLine from './UndergroundLine'
 import PipeRunLine from './PipeRunLine'
 import PunchingMode from './PunchingMode'
 import FieldHistorySheet from './FieldHistorySheet'
+import EditWellSheet from './EditWellSheet'
+import FlagSheet from './FlagSheet'
 
 const DELTA_CENTER = [33.45, -90.95]
+
+const FLAG_ICON = L.divIcon({
+  className: '',
+  html: '<div style="font-size:22px;line-height:1;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.9))">🚩</div>',
+  iconSize: [22, 22],
+  iconAnchor: [2, 22],
+})
 
 // ── GPS dot — same behavior as Dev Mode's map ──────────────────────────────
 function UserLocation() {
@@ -73,8 +82,8 @@ function StartStopToggle({ isRunning, onToggle }) {
 }
 
 // ── Action sheet for whichever run was tapped ───────────────────────────────
-function RunActionSheet({ run, onClose }) {
-  const [punching, setPunching] = useState(false)
+function RunActionSheet({ run, onClose, defaultPunching = false }) {
+  const [punching, setPunching] = useState(defaultPunching)
   const isRunning = run.status === 'running'
 
   async function handleToggle() {
@@ -112,25 +121,43 @@ export default function FieldModeHome({ onSwitchToDevMode }) {
   const runs         = useLiveQuery(() => db.runs.toArray(), [])
   const allSegments  = useLiveQuery(() => db.segments.toArray(), [])
   const tees         = useLiveQuery(() => db.tees.toArray(), [])
+  const flags        = useLiveQuery(() => db.flags.toArray(), [])
   const mapRef = useRef(null)
 
   const [selectedFieldId, setSelectedFieldId] = useState(null)
   const [actionRun, setActionRun] = useState(null)
+  const [restoringPunching, setRestoringPunching] = useState(false)
+  const [editingWell, setEditingWell] = useState(null)
   const [showHistory, setShowHistory] = useState(false)
-  const [dayPattern, setDayPattern] = useState('all') // 'all' | 'every' | 'alternate'
+  const [flagSheetData, setFlagSheetData] = useState(null)
+
+  // Restore punching mode if the phone reloaded mid-session
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('pipemaster-punching') || 'null')
+      if (!saved?.runId) return
+      db.runs.get(saved.runId).then(run => {
+        if (run) { setActionRun(run); setRestoringPunching(true) }
+      })
+    } catch { /* corrupt entry — ignore */ }
+  }, [])
 
   const selectedField = fields?.find(f => f.id === selectedFieldId) ?? null
   const fieldRisers = selectedField ? (risers?.filter(r => r.fieldId === selectedField.id) ?? []) : []
-  const allFieldRuns = selectedField ? (runs?.filter(r => r.fieldId === selectedField.id) ?? []) : []
-
-  // Filter runs by today's selected pattern — untagged runs always show
-  const fieldRuns = dayPattern === 'all'
-    ? allFieldRuns
-    : allFieldRuns.filter(r => !r.furrowPattern || r.furrowPattern === dayPattern)
+  const fieldRuns   = selectedField ? (runs?.filter(r => r.fieldId === selectedField.id) ?? []) : []
 
   function flyTo(boundary) {
     if (!mapRef.current || !boundary?.length) return
     mapRef.current.flyToBounds(L.latLngBounds(boundary), { padding: [60, 60], maxZoom: 17 })
+  }
+
+  function dropFlagHere() {
+    if (!navigator.geolocation) return
+    navigator.geolocation.getCurrentPosition(
+      pos => setFlagSheetData({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => alert('GPS not available — turn on location services and try again.'),
+      { enableHighAccuracy: true, maximumAge: 5000 }
+    )
   }
 
   return (
@@ -144,7 +171,7 @@ export default function FieldModeHome({ onSwitchToDevMode }) {
 
         {fields?.map(f => (
           <FieldPolygon key={f.id} field={f} isSelected={f.id === selectedFieldId}
-            onClick={(field) => { flyTo(field.boundary); setSelectedFieldId(field.id); setDayPattern('all') }} />
+            onClick={(field) => { flyTo(field.boundary); setSelectedFieldId(field.id) }} />
         ))}
 
         {undergrounds?.map(u => {
@@ -182,9 +209,14 @@ export default function FieldModeHome({ onSwitchToDevMode }) {
           return <TeeMarker key={tee.id} position={pos} name={tee.name} />
         })}
 
-        {wells?.map(w => <WellMarker key={w.id} well={w} />)}
+        {wells?.map(w => <WellMarker key={w.id} well={w} onClick={well => setEditingWell(well)} />)}
         {selectedFieldId && risers?.filter(r => r.fieldId === selectedFieldId).map(r => (
           <RiserMarker key={r.id} riser={r} />
+        ))}
+
+        {flags?.map(flag => (
+          <Marker key={flag.id} position={[flag.lat, flag.lon]} icon={FLAG_ICON}
+                  eventHandlers={{ click: () => setFlagSheetData(flag) }} />
         ))}
 
         <UserLocation />
@@ -194,10 +226,17 @@ export default function FieldModeHome({ onSwitchToDevMode }) {
       <div className="absolute top-0 left-0 right-0 z-[1000] flex items-center justify-between px-4 py-3"
            style={{ background: 'linear-gradient(to bottom, rgba(15,25,35,0.95), transparent)' }}>
         <span className="text-green-400 font-bold text-xl tracking-wide">PIPEMASTER</span>
-        <button onClick={onSwitchToDevMode}
-                className="text-sm font-semibold text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 rounded-xl px-4 py-2.5 transition-colors">
-          ⚙ Dev Mode
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={dropFlagHere}
+                  className="text-sm font-semibold text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 rounded-xl px-3 py-2.5 transition-colors"
+                  title="Drop a flag at your GPS location">
+            🚩
+          </button>
+          <button onClick={onSwitchToDevMode}
+                  className="text-sm font-semibold text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 rounded-xl px-4 py-2.5 transition-colors">
+            ⚙ Dev Mode
+          </button>
+        </div>
       </div>
 
       {/* Half-height field panel */}
@@ -213,26 +252,6 @@ export default function FieldModeHome({ onSwitchToDevMode }) {
             </div>
             <button onClick={() => setSelectedFieldId(null)}
                     className="text-gray-500 hover:text-white text-2xl leading-none flex-shrink-0 ml-2">×</button>
-          </div>
-
-          {/* Day pattern filter */}
-          <div className="flex gap-2 px-4 pt-3 pb-1 flex-shrink-0">
-            {[
-              { value: 'all',       label: 'All runs',        color: '#94a3b8' },
-              { value: 'every',     label: 'Every furrow',    color: '#22c55e' },
-              { value: 'alternate', label: 'Every other',     color: '#f97316' },
-            ].map(opt => (
-              <button key={opt.value}
-                      onClick={() => setDayPattern(opt.value)}
-                      className="flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all"
-                      style={{
-                        borderColor: dayPattern === opt.value ? opt.color : 'rgba(255,255,255,0.1)',
-                        background:  dayPattern === opt.value ? `${opt.color}20` : 'transparent',
-                        color:       dayPattern === opt.value ? opt.color : '#6b7280',
-                      }}>
-                {opt.label}
-              </button>
-            ))}
           </div>
 
           <button onClick={() => setShowHistory(true)}
@@ -290,7 +309,27 @@ export default function FieldModeHome({ onSwitchToDevMode }) {
       {actionRun && (
         <RunActionSheet
           run={runs?.find(r => r.id === actionRun.id) ?? actionRun}
-          onClose={() => setActionRun(null)}
+          onClose={() => { setActionRun(null); setRestoringPunching(false) }}
+          defaultPunching={restoringPunching}
+        />
+      )}
+
+      {editingWell && (
+        <EditWellSheet
+          well={wells?.find(w => w.id === editingWell.id) ?? editingWell}
+          onClose={() => setEditingWell(null)}
+          onSaved={() => setEditingWell(null)}
+          fieldMode
+        />
+      )}
+      {flagSheetData && (
+        <FlagSheet
+          flag={flagSheetData.id ? flagSheetData : null}
+          lat={flagSheetData.lat}
+          lon={flagSheetData.lon}
+          onClose={() => setFlagSheetData(null)}
+          onSaved={() => setFlagSheetData(null)}
+          onDeleted={() => setFlagSheetData(null)}
         />
       )}
     </div>

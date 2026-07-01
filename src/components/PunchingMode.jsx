@@ -39,25 +39,80 @@ export default function PunchingMode({ run, onExit }) {
   )
   const lineNames = [...new Set((allSegments ?? []).map(s => s.line || 'Line 1'))]
 
-  // Pre-fill from run's tagged pattern; null = user must pick before starting
-  const [selectedPattern, setSelectedPattern] = useState(run.furrowPattern ?? null)
-  const [selectedLine, setSelectedLine] = useState(null)
+  // Restore from localStorage if the phone reloaded mid-session
+  const [selectedPattern, setSelectedPattern] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('pipemaster-punching') || 'null')
+      return s?.runId === run.id ? (s.pattern ?? run.furrowPattern ?? null) : (run.furrowPattern ?? null)
+    } catch { return run.furrowPattern ?? null }
+  })
+  const [selectedLine, setSelectedLine] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('pipemaster-punching') || 'null')
+      return s?.runId === run.id ? (s.line ?? null) : null
+    } catch { return null }
+  })
+  const [gearConfirmed, setGearConfirmed] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('pipemaster-punching') || 'null')
+      return s?.runId === run.id ? (s.gearConfirmed ?? false) : false
+    } catch { return false }
+  })
   const [position, setPosition] = useState(null)
   const [accuracy, setAccuracy] = useState(null)
   const [currentSeg, setCurrentSeg] = useState(null)
   const [currentFt, setCurrentFt] = useState(null)
   const [gpsError, setGpsError] = useState(null)
   const lastHoleSizeRef = useRef(null)
+  const audioCtxRef = useRef(null)
 
-  // Skip the line picker when there's only one physical line — but only after pattern is confirmed
-  useEffect(() => {
-    if (!selectedPattern) return
-    if (!selectedLine && lineNames.length === 1) setSelectedLine(lineNames[0])
-  }, [lineNames, selectedLine, selectedPattern])
+  function playChime() {
+    try {
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext()
+      const ctx = audioCtxRef.current
+      // Two-tone alert: high beep then lower beep
+      [[880, 0, 0.15], [660, 0.2, 0.15]].forEach(([freq, start, dur]) => {
+        const osc  = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain); gain.connect(ctx.destination)
+        osc.frequency.value = freq
+        osc.type = 'sine'
+        gain.gain.setValueAtTime(0.5, ctx.currentTime + start)
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur)
+        osc.start(ctx.currentTime + start)
+        osc.stop(ctx.currentTime + start + dur + 0.05)
+      })
+    } catch { /* AudioContext not available */ }
+  }
 
-  // Keep the screen awake while punching — no reason to fumble unlocking your phone mid-furrow
+  // Auto-select line when there's only one option — skip the picker entirely
   useEffect(() => {
-    if (!selectedLine) return
+    if (selectedLine || lineNames.length !== 1) return
+    setSelectedLine(lineNames[0])
+  }, [lineNames, selectedLine])
+
+  // Persist punching state so a page reload restores straight back here
+  useEffect(() => {
+    if (!selectedPattern && !selectedLine && !gearConfirmed) return
+    try {
+      localStorage.setItem('pipemaster-punching', JSON.stringify({
+        runId: run.id,
+        pattern: selectedPattern,
+        line: selectedLine,
+        gearConfirmed,
+      }))
+    } catch { /* storage quota exceeded — degrade silently */ }
+  }, [run.id, selectedPattern, selectedLine])
+
+  function handleExit() {
+    try { localStorage.removeItem('pipemaster-punching') } catch { }
+    onExit()
+  }
+
+  // Keep the screen awake from the moment the user enters punching mode — not
+  // just after they've picked a line — so the phone can't lock during the
+  // pattern/line picker steps either
+  useEffect(() => {
     let lock = null
     async function requestLock() {
       try { lock = await navigator.wakeLock?.request('screen') } catch { /* unsupported or denied — degrade silently */ }
@@ -71,7 +126,7 @@ export default function PunchingMode({ run, onExit }) {
       document.removeEventListener('visibilitychange', handleVisibility)
       lock?.release?.()
     }
-  }, [selectedLine])
+  }, [])
 
   // Live GPS → nearest point on the path → which segment that falls in
   useEffect(() => {
@@ -90,7 +145,10 @@ export default function PunchingMode({ run, onExit }) {
         setCurrentFt(ft)
         setCurrentSeg(seg)
         if (seg && seg.holeSize !== lastHoleSizeRef.current) {
-          if (lastHoleSizeRef.current !== null) navigator.vibrate?.([200, 100, 200])
+          if (lastHoleSizeRef.current !== null) {
+            navigator.vibrate?.([200, 100, 200, 100, 200])
+            playChime()
+          }
           lastHoleSizeRef.current = seg.holeSize
         }
       },
@@ -104,13 +162,34 @@ export default function PunchingMode({ run, onExit }) {
   const color = currentSeg ? (HOLE_COLOR[currentSeg.holeSize] ?? '#64748b') : '#1a2535'
   const accuracyFt = accuracy != null ? Math.round(accuracy / 0.3048) : null
 
-  // ── Step 1: pick furrow pattern (skipped if run already has one tagged) ──────
+  // ── Step 1: pick line (skipped when only one) ────────────────────────────────
+  if (!selectedLine) {
+    return (
+      <div className="fixed inset-0 z-[3000] flex flex-col" style={{ background: '#0f1923' }}>
+        <div className="flex items-center justify-between px-5 py-4">
+          <span className="text-white font-semibold text-lg truncate">{run.name}</span>
+          <button onClick={handleExit} className="text-gray-400 hover:text-white text-2xl leading-none flex-shrink-0">✕</button>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6">
+          <div className="text-gray-400 text-sm mb-2">Which line are you punching?</div>
+          {lineNames.map(name => (
+            <button key={name} onClick={() => setSelectedLine(name)}
+                    className="w-full max-w-xs py-4 rounded-xl text-white text-lg font-medium border border-white/20 active:border-green-500/60 transition-all">
+              {name}
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Step 2: pick furrow pattern (skipped if run already has one tagged) ──────
   if (!selectedPattern) {
     return (
       <div className="fixed inset-0 z-[3000] flex flex-col" style={{ background: '#0f1923' }}>
         <div className="flex items-center justify-between px-5 py-4">
           <span className="text-white font-semibold text-lg truncate">{run.name}</span>
-          <button onClick={onExit} className="text-gray-400 hover:text-white text-2xl leading-none flex-shrink-0">✕</button>
+          <button onClick={handleExit} className="text-gray-400 hover:text-white text-2xl leading-none flex-shrink-0">✕</button>
         </div>
         <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
           <div className="text-gray-400 text-sm mb-1">Which pattern are you punching today?</div>
@@ -126,22 +205,38 @@ export default function PunchingMode({ run, onExit }) {
     )
   }
 
-  // ── Step 2: pick line (skipped when only one) ────────────────────────────────
-  if (!selectedLine) {
+  // ── Step 3: gear list — required punchers for this line ──────────────────────
+  if (!gearConfirmed) {
+    const lineSegs = (allSegments ?? []).filter(s => (s.line || 'Line 1') === selectedLine)
+    const sizes = []
+    lineSegs.forEach(s => { if (s.holeSize && s.holeSize !== 'Supply' && !sizes.includes(s.holeSize)) sizes.push(s.holeSize) })
     return (
       <div className="fixed inset-0 z-[3000] flex flex-col" style={{ background: '#0f1923' }}>
         <div className="flex items-center justify-between px-5 py-4">
           <span className="text-white font-semibold text-lg truncate">{run.name}</span>
-          <button onClick={onExit} className="text-gray-400 hover:text-white text-2xl leading-none flex-shrink-0">✕</button>
+          <button onClick={handleExit} className="text-gray-400 hover:text-white text-2xl leading-none flex-shrink-0">✕</button>
         </div>
-        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6">
-          <div className="text-gray-400 text-sm mb-2">Which line are you punching?</div>
-          {lineNames.map(name => (
-            <button key={name} onClick={() => setSelectedLine(name)}
-                    className="w-full max-w-xs py-4 rounded-xl text-white text-lg font-medium border border-white/20 active:border-green-500/60 transition-all">
-              {name}
-            </button>
-          ))}
+        <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6">
+          <div className="text-center">
+            <div className="text-white font-bold text-xl mb-1">Grab your punchers</div>
+            <div className="text-gray-500 text-sm">{selectedLine} · {furrowPatternLabel(selectedPattern)}</div>
+          </div>
+          <div className="w-full max-w-xs flex flex-col gap-2">
+            {sizes.length === 0 ? (
+              <div className="text-gray-500 text-sm text-center">No hole sizes defined for this line.</div>
+            ) : sizes.map(size => (
+              <div key={size} className="flex items-center gap-3 rounded-xl px-4 py-3"
+                   style={{ background: `${HOLE_COLOR[size] ?? '#64748b'}18`, border: `1px solid ${HOLE_COLOR[size] ?? '#64748b'}44` }}>
+                <div className="w-4 h-4 rounded-full flex-shrink-0" style={{ background: HOLE_COLOR[size] ?? '#64748b' }} />
+                <span className="text-white font-semibold text-lg">{size}</span>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setGearConfirmed(true)}
+                  className="w-full max-w-xs py-4 rounded-2xl font-bold text-white text-base active:scale-95 transition-all mt-2"
+                  style={{ background: 'linear-gradient(135deg, #f97316, #dc2626)' }}>
+            Start punching →
+          </button>
         </div>
       </div>
     )
@@ -168,7 +263,7 @@ export default function PunchingMode({ run, onExit }) {
         </MapContainer>
 
         <div className="absolute top-3 left-3 right-3 z-[1000] flex items-center justify-between pointer-events-none">
-          <button onClick={onExit}
+          <button onClick={handleExit}
                   className="pointer-events-auto text-white flex items-center justify-center text-xl leading-none rounded-full"
                   style={{ width: 40, height: 40, background: 'rgba(0,0,0,0.5)' }}>
             ✕

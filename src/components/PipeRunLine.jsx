@@ -34,11 +34,19 @@ export default function PipeRunLine({ run, segments, onSelect, selectable = true
             )}
 
             {statusColor ? (
-              // Field Mode: just on/off at a glance, hole-size detail is a Dev Mode concern
-              <Polyline
-                positions={linePath}
-                pathOptions={{ color: runColor, weight: 5, opacity: 0.95 }}
-              />
+              // Field Mode: solid green + glow when running, dim grey when idle
+              <>
+                {run.status === 'running' && (
+                  <Polyline positions={linePath}
+                    pathOptions={{ color: '#22c55e', weight: 20, opacity: 0.08 }} />
+                )}
+                {run.status === 'running' && (
+                  <Polyline positions={linePath}
+                    pathOptions={{ color: '#22c55e', weight: 11, opacity: 0.2 }} />
+                )}
+                <Polyline positions={linePath}
+                  pathOptions={{ color: runColor, weight: run.status === 'running' ? 5 : 3, opacity: run.status === 'running' ? 0.95 : 0.55 }} />
+              </>
             ) : (
               <>
                 {sorted.map((seg, i) => {

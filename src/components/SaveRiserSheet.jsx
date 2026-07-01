@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import BottomSheet from './BottomSheet'
 import db from '../lib/db'
+import { haversineMeters } from '../lib/pipeUtils'
 
 export default function SaveRiserSheet({ wellId, farmId, fieldId, lat, lon, onClose, onSaved }) {
   const [name, setName]                   = useState('')
@@ -11,8 +12,35 @@ export default function SaveRiserSheet({ wellId, farmId, fieldId, lat, lon, onCl
   const [fromType, setFromType]           = useState('well')
   const [fromId, setFromId]               = useState(wellId ?? null)
 
-  const farmWells      = useLiveQuery(() => db.wells.where('farmId').equals(farmId).toArray(), [farmId])
-  const farmFields     = useLiveQuery(() => db.fields.where('farmId').equals(farmId).toArray(), [farmId])
+  const allFarmWells   = useLiveQuery(() => db.wells.where('farmId').equals(farmId).toArray(), [farmId])
+  const allFarmFields  = useLiveQuery(() => db.fields.where('farmId').equals(farmId).toArray(), [farmId])
+
+  const riserPos = [lat, lon]
+
+  const farmWells = useMemo(() => {
+    if (!allFarmWells) return undefined
+    return [...allFarmWells]
+      .filter(w => w.lat != null && w.lon != null)
+      .sort((a, b) => haversineMeters(riserPos, [a.lat, a.lon]) - haversineMeters(riserPos, [b.lat, b.lon]))
+      .slice(0, 4)
+  }, [allFarmWells, lat, lon])
+
+  const farmFields = useMemo(() => {
+    if (!allFarmFields) return undefined
+    return [...allFarmFields]
+      .map(f => {
+        const b = f.boundary
+        if (!b?.length) return null
+        const center = [
+          b.reduce((s, p) => s + p[0], 0) / b.length,
+          b.reduce((s, p) => s + p[1], 0) / b.length,
+        ]
+        return { ...f, _center: center }
+      })
+      .filter(Boolean)
+      .sort((a, b) => haversineMeters(riserPos, a._center) - haversineMeters(riserPos, b._center))
+      .slice(0, 4)
+  }, [allFarmFields, lat, lon])
   const existingRisers = useLiveQuery(
     () => selectedWellId ? db.risers.where('wellId').equals(selectedWellId).toArray() : Promise.resolve([]),
     [selectedWellId]
@@ -67,7 +95,7 @@ export default function SaveRiserSheet({ wellId, farmId, fieldId, lat, lon, onCl
         {/* Well picker — shown when coming from field view (no pre-selected well) */}
         {needsWellPick && (
           <div>
-            <label className="text-sm text-gray-400 mb-2 block">Fed by well</label>
+            <label className="text-sm text-gray-400 mb-2 block">Fed by well <span className="text-gray-600">(4 closest)</span></label>
             {!farmWells?.length && (
               <div className="text-xs text-gray-600 italic">No wells on this farm yet — add a well first.</div>
             )}
@@ -131,7 +159,7 @@ export default function SaveRiserSheet({ wellId, farmId, fieldId, lat, lon, onCl
         {/* Field picker — always shown so the riser is linked to the right field */}
         {farmFields && farmFields.length > 0 && (
           <div>
-            <label className="text-sm text-gray-400 mb-2 block">Serves field</label>
+            <label className="text-sm text-gray-400 mb-2 block">Serves field <span className="text-gray-600">(4 closest)</span></label>
             <div className="flex flex-wrap gap-2">
               {farmFields.map(f => (
                 <button

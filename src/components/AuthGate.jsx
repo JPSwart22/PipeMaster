@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { getSession, onAuthStateChange, signUp, signIn } from '../lib/auth'
 import { getMyFarm, setupFarm, joinFarmWithCode, saveProfile } from '../lib/farms'
 import { startAutoSync, stopAutoSync } from '../lib/cloudSync'
+import { clearAllTablesData } from '../lib/backup'
 
 function LoadingScreen() {
   return (
@@ -215,8 +216,18 @@ export default function AuthGate({ children }) {
   useEffect(() => {
     if (session === undefined) return
     if (!session) { setFarm(null); stopAutoSync(); return }
+
+    const prevUserId = localStorage.getItem('pipemaster-user-id')
+    const currUserId = session.user?.id
+    if (currUserId) localStorage.setItem('pipemaster-user-id', currUserId)
+
     setFarm(undefined)
-    getMyFarm().then(setFarm).catch(() => setFarm(null))
+    // If a different user signed in, wipe local DB so they don't see the old account's data
+    const maybeWipe = prevUserId && currUserId && prevUserId !== currUserId
+      ? clearAllTablesData()
+      : Promise.resolve()
+
+    maybeWipe.then(() => getMyFarm()).then(setFarm).catch(() => setFarm(null))
   }, [session])
 
   useEffect(() => {
