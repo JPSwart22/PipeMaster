@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Pipemaster</string>
+    <string name="title_activity_main">Pipemaster</string>
+    <string name="package_name">app.pipemaster</string>
+    <string name="custom_url_scheme">app.pipemaster</string>
+</resources>

@@ -1,14 +1,42 @@
 import { useState, useEffect } from 'react'
-import { getSession, onAuthStateChange, signUp, signIn } from '../lib/auth'
-import { getMyFarm, setupFarm, joinFarmWithCode, saveProfile } from '../lib/farms'
+import { getSession, onAuthStateChange, signUp, signIn, signInWithGoogle } from '../lib/auth'
+import { getMyFarm, setupFarm, joinFarmWithCode, saveProfile, isSubActive, getCachedSubAllowed } from '../lib/farms'
 import { startAutoSync, stopAutoSync } from '../lib/cloudSync'
 import { clearAllTablesData } from '../lib/backup'
+import { initPurchases } from '../lib/purchases'
+import SubWall from './SubWall'
 
 function LoadingScreen() {
   return (
     <div className="app-root flex items-center justify-center" style={{ background: '#0f1923' }}>
       <span className="text-green-400 font-bold text-xl tracking-wide">PIPEMASTER</span>
     </div>
+  )
+}
+
+function GoogleButton({ busy, onBusy }) {
+  const [err, setErr] = useState(null)
+  async function handle() {
+    onBusy(true); setErr(null)
+    try { await signInWithGoogle() }
+    catch (e) { setErr(e.message) }
+    finally { onBusy(false) }
+  }
+  return (
+    <>
+      <button onClick={handle} disabled={busy}
+              className="w-full py-3 rounded-xl font-semibold text-white border border-white/15 flex items-center justify-center gap-2.5 hover:bg-white/5 transition-all disabled:opacity-40"
+              style={{ background: 'rgba(255,255,255,0.03)' }}>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4"/>
+          <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z" fill="#34A853"/>
+          <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+          <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+        </svg>
+        Continue with Google
+      </button>
+      {err && <div className="text-red-400 text-xs text-center">{err}</div>}
+    </>
   )
 }
 
@@ -55,6 +83,12 @@ function AuthScreen() {
         PIPEMASTER
       </span>
       <div className="w-full flex flex-col gap-3 auth-card" style={{ maxWidth: 320 }}>
+        <GoogleButton busy={busy} onBusy={setBusy} />
+        <div className="flex items-center gap-2">
+          <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
+          <span className="text-gray-600 text-xs">or</span>
+          <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.08)' }} />
+        </div>
         <input
           type="email"
           value={email}
@@ -206,7 +240,8 @@ function FarmOnboarding({ onReady }) {
 
 export default function AuthGate({ children }) {
   const [session, setSession] = useState(undefined) // undefined = checking, null = signed out
-  const [farm, setFarm] = useState(undefined)
+  const [farm, setFarm]       = useState(undefined)
+  const [subOk, setSubOk]     = useState(true) // assume ok until we know otherwise
 
   useEffect(() => {
     getSession().then(setSession)
@@ -219,15 +254,37 @@ export default function AuthGate({ children }) {
 
     const prevUserId = localStorage.getItem('pipemaster-user-id')
     const currUserId = session.user?.id
-    if (currUserId) localStorage.setItem('pipemaster-user-id', currUserId)
+    if (currUserId) {
+      localStorage.setItem('pipemaster-user-id', currUserId)
+      initPurchases(currUserId)
+    }
 
     setFarm(undefined)
-    // If a different user signed in, wipe local DB so they don't see the old account's data
     const maybeWipe = prevUserId && currUserId && prevUserId !== currUserId
       ? clearAllTablesData()
       : Promise.resolve()
 
-    maybeWipe.then(() => getMyFarm()).then(setFarm).catch(() => setFarm(null))
+    const isOAuth = session.user?.app_metadata?.provider !== 'email'
+    if (isOAuth) {
+      const name = session.user?.user_metadata?.full_name
+        || session.user?.user_metadata?.name
+        || session.user?.email
+      saveProfile(name).catch(() => {})
+    }
+
+    maybeWipe.then(() => getMyFarm()).then(f => {
+      setFarm(f)
+      if (f) setSubOk(isSubActive(f))
+    }).catch(() => {
+      // Offline — use cached sub status with 48 hr grace
+      const cached = getCachedSubAllowed()
+      if (cached) {
+        setSubOk(cached.allowed)
+        setFarm({ code: null, role: cached.role, _offline: true })
+      } else {
+        setFarm(null)
+      }
+    })
   }, [session])
 
   useEffect(() => {
@@ -238,7 +295,14 @@ export default function AuthGate({ children }) {
   if (session === undefined) return <LoadingScreen />
   if (!session) return <AuthScreen />
   if (farm === undefined) return <LoadingScreen />
-  if (!farm) return <FarmOnboarding onReady={setFarm} />
+  if (!farm) return <FarmOnboarding onReady={f => { setFarm(f); setSubOk(isSubActive(f)) }} />
+
+  if (!subOk) return (
+    <SubWall farm={farm} onUnlocked={() => {
+      setSubOk(true)
+      setFarm(f => f ? { ...f, sub_status: 'active' } : f)
+    }} />
+  )
 
   return children
 }

@@ -39,6 +39,17 @@ export default function PunchingMode({ run, onExit }) {
   )
   const lineNames = [...new Set((allSegments ?? []).map(s => s.line || 'Line 1'))]
 
+  // Patterns that actually appear in the segments (non-Supply only)
+  const segmentPatterns = [...new Set(
+    (allSegments ?? [])
+      .filter(s => s.holeSize !== 'Supply' && s.furrowPattern)
+      .map(s => s.furrowPattern)
+  )]
+  // Only show patterns that exist in this run's data; fall back to both if none set
+  const availablePatterns = PUNCH_PATTERNS.filter(p =>
+    segmentPatterns.length === 0 || segmentPatterns.includes(p.value)
+  )
+
   // Restore from localStorage if the phone reloaded mid-session
   const [selectedPattern, setSelectedPattern] = useState(() => {
     try {
@@ -46,6 +57,12 @@ export default function PunchingMode({ run, onExit }) {
       return s?.runId === run.id ? (s.pattern ?? run.furrowPattern ?? null) : (run.furrowPattern ?? null)
     } catch { return run.furrowPattern ?? null }
   })
+
+  // Auto-select if segments only have one pattern and nothing is selected yet
+  useEffect(() => {
+    if (selectedPattern) return
+    if (segmentPatterns.length === 1) setSelectedPattern(segmentPatterns[0])
+  }, [allSegments])
   const [selectedLine, setSelectedLine] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('pipemaster-punching') || 'null')
@@ -193,7 +210,7 @@ export default function PunchingMode({ run, onExit }) {
         </div>
         <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
           <div className="text-gray-400 text-sm mb-1">Which pattern are you punching today?</div>
-          {PUNCH_PATTERNS.map(opt => (
+          {availablePatterns.map(opt => (
             <button key={opt.value} onClick={() => setSelectedPattern(opt.value)}
                     className="w-full max-w-xs py-5 rounded-2xl font-semibold text-xl border-2 transition-all"
                     style={{ borderColor: opt.color, color: opt.color, background: `${opt.color}12` }}>

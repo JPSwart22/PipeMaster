@@ -3,6 +3,7 @@ import MapHome from './components/MapHome'
 import FieldModeHome from './components/FieldModeHome'
 import AuthGate from './components/AuthGate'
 import TutorialMode from './components/TutorialMode'
+import HelpSheet from './components/HelpSheet'
 import PrivacyPolicy from './components/PrivacyPolicy'
 import TermsOfUse from './components/TermsOfUse'
 
@@ -11,19 +12,17 @@ export default function App() {
   if (window.location.pathname === '/terms') return <TermsOfUse />
 
   const [mode, setMode] = useState(() => localStorage.getItem('pipemaster-mode') || 'field')
-  // True on first launch — TutorialMode is inside AuthGate's children so it only
-  // renders after the user is fully authenticated and their farm is set up.
   const [showTutorial, setShowTutorial] = useState(() => !localStorage.getItem('pipemaster-intro-seen'))
+  const [showHelp, setShowHelp] = useState(false)
 
   useEffect(() => {
     localStorage.setItem('pipemaster-mode', mode)
   }, [mode])
 
-  // "View intro again" from Settings
   useEffect(() => {
-    const handler = () => setShowTutorial(true)
-    window.addEventListener('pipemaster:show-intro', handler)
-    return () => window.removeEventListener('pipemaster:show-intro', handler)
+    const handler = () => setShowHelp(true)
+    window.addEventListener('pipemaster:show-help', handler)
+    return () => window.removeEventListener('pipemaster:show-help', handler)
   }, [])
 
   function handleTutorialDone() {
@@ -44,6 +43,7 @@ export default function App() {
             onSwitchToFieldMode={() => setMode('field')}
           />
         )}
+        {showHelp && <HelpSheet onClose={() => setShowHelp(false)} />}
       </div>
     </AuthGate>
   )

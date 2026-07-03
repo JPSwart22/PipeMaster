@@ -165,6 +165,14 @@ export default function MapHome({ onSwitchToFieldMode }) {
     mapRef.current.flyToBounds(L.latLngBounds(boundary), { padding: [60, 60], maxZoom: 17 })
   }
 
+  function handleFlyToFarm(farmId) {
+    if (!mapRef.current || !fields?.length) return
+    const farmFields = fields.filter(f => f.farmId === farmId && f.boundary?.length)
+    if (!farmFields.length) return
+    const allPoints = farmFields.flatMap(f => f.boundary)
+    mapRef.current.flyToBounds(L.latLngBounds(allPoints), { padding: [60, 60], maxZoom: 16 })
+  }
+
   // ── FAB ───────────────────────────────────────────────────────────────────
   function handleFAB() {
     setFabMenuOpen(o => !o)
@@ -815,6 +823,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
               selectedField={detailField}
               onSelectField={(f) => { setDetailFieldId(f?.id ?? null); setSelectedFieldId(f?.id ?? null); if (f) { flyTo(f.boundary) } }}
               onFlyToField={(f) => flyTo(f.boundary)}
+              onFlyToFarm={handleFlyToFarm}
               onAddField={(farm) => { setActiveFarm(farm); setDrawMode('field'); setPoints([]); setPanelOpen(false) }}
               onAddFarm={() => setSheet('addFarm')}
               onAddWell={handleAddWell}

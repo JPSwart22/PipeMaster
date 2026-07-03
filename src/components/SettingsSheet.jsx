@@ -169,12 +169,11 @@ export default function SettingsSheet({ onClose }) {
 
         <button
           onClick={() => {
-            localStorage.removeItem('pipemaster-intro-seen')
-            window.dispatchEvent(new CustomEvent('pipemaster:show-intro'))
+            window.dispatchEvent(new CustomEvent('pipemaster:show-help'))
             onClose()
           }}
           className="w-full py-2.5 rounded-xl text-sm text-blue-400 hover:text-blue-300 border border-blue-900/40 hover:border-blue-700/40 transition-all">
-          View intro again
+          Help &amp; Guide
         </button>
 
         {/* Support */}

@@ -270,7 +270,7 @@ function FieldDetail({ field, onBack, onEditBoundary, onAddRiserToField, onDelet
 }
 
 // ── Main panel ────────────────────────────────────────────────────────────────
-export default function SidePanel({ selectedField, onSelectField, onFlyToField, onAddField, onAddFarm, onAddWell, onAddRiser, onAddRiserToField, onEditBoundary, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun, onEditWell, onClose }) {
+export default function SidePanel({ selectedField, onSelectField, onFlyToField, onFlyToFarm, onAddField, onAddFarm, onAddWell, onAddRiser, onAddRiserToField, onEditBoundary, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun, onEditWell, onClose }) {
   const farms  = useLiveQuery(() => db.farms.toArray(), [])
   const fields = useLiveQuery(() => db.fields.toArray(), [])
   const wells  = useLiveQuery(() => db.wells.toArray(), [])
@@ -459,7 +459,7 @@ export default function SidePanel({ selectedField, onSelectField, onFlyToField, 
             <div key={farm.id} className="mb-0.5">
               {/* Farm header */}
               <div className="flex items-center group hover:bg-white/5 transition-all">
-                <button onClick={() => toggleFarm(farm.id)}
+                <button onClick={() => { if (!open) onFlyToFarm?.(farm.id); toggleFarm(farm.id) }}
                         className="flex items-center gap-2 px-4 py-2.5 text-left flex-1 min-w-0">
                   <span className="text-gray-500 text-xs w-3">{open ? '▼' : '▶'}</span>
                   <span className="text-white font-medium text-sm flex-1 truncate">{farm.name}</span>

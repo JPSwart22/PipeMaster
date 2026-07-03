@@ -8,14 +8,41 @@ export async function getMyFarm() {
   if (!user) return null
   const { data, error } = await supabase
     .from('farm_members')
-    .select('role, farms(id, name, code, owner_id)')
+    .select('role, farms(id, name, code, owner_id, sub_status, trial_ends_at, sub_expires_at)')
     .eq('user_id', user.id)
     .maybeSingle()
   if (error) throw error
   if (!data?.farms) return null
   const farm = { ...data.farms, role: data.role }
   saveFarmCode(farm.code)
+  // Cache subscription status locally for offline grace period
+  localStorage.setItem('pipemaster-sub-cache', JSON.stringify({
+    allowed: isSubActive(farm),
+    role: farm.role,
+    trialEndsAt: farm.trial_ends_at,
+    checkedAt: Date.now(),
+  }))
   return farm
+}
+
+export function isSubActive(farm) {
+  if (!farm) return false
+  if (farm.sub_status === 'active') return true
+  if (farm.sub_status === 'trial' && farm.trial_ends_at) {
+    return new Date(farm.trial_ends_at) > new Date()
+  }
+  return false
+}
+
+// Returns cached sub state if Supabase is unreachable and cache is < 48 hours old
+export function getCachedSubAllowed() {
+  try {
+    const cached = JSON.parse(localStorage.getItem('pipemaster-sub-cache') || 'null')
+    if (!cached) return null
+    const GRACE_MS = 48 * 60 * 60 * 1000
+    if (Date.now() - cached.checkedAt < GRACE_MS) return cached
+  } catch { /* ignore */ }
+  return null
 }
 
 export async function saveProfile(username) {
@@ -36,9 +63,10 @@ export async function setupFarm(farmName) {
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = generateFarmCode()
+    const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     const { data: farm, error } = await supabase
       .from('farms')
-      .insert({ name: farmName, code, owner_id: user.id })
+      .insert({ name: farmName, code, owner_id: user.id, sub_status: 'trial', trial_ends_at: trialEndsAt })
       .select()
       .single()
     if (!error) {

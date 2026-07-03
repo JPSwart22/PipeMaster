@@ -1,5 +1,12 @@
 {
   "appId": "app.pipemaster",
   "appName": "Pipemaster",
-  "webDir": "dist"
+  "webDir": "dist",
+  "plugins": {
+    "GoogleAuth": {
+      "scopes": ["profile", "email"],
+      "serverClientId": "1055500533196-hbur3oucv6h3purdindn68gc04kovohn.apps.googleusercontent.com",
+      "forceCodeForRefreshToken": true
+    }
+  }
 }
