@@ -1,10 +1,11 @@
 import supabase from './supabase'
 import { getAllTablesData, restoreAllTablesData } from './backup'
 
-const CODE_KEY = 'pipemaster-farm-code'
-const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no 0/O/1/I to avoid confusion read aloud
-const PUSH_DEBOUNCE_MS = 300
-const ECHO_GUARD_MS = 1500 // skip realtime pulls that are just our own push reflecting back
+const CODE_KEY       = 'pipemaster-farm-code'
+const LAST_WRITE_KEY = 'pipemaster-last-write-at'
+const CODE_CHARS     = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no 0/O/1/I to avoid confusion read aloud
+const PUSH_DEBOUNCE_MS = 2000  // raised from 300ms — gives writes time to settle before push
+const ECHO_GUARD_MS    = 3000  // raised — give the push → realtime echo time to arrive and be ignored
 
 export function getSavedFarmCode() {
   return localStorage.getItem(CODE_KEY)
@@ -18,6 +19,16 @@ export function generateFarmCode() {
   let code = ''
   for (let i = 0; i < 6; i++) code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]
   return code
+}
+
+// Called whenever any local DB write happens — stamps the time so startup
+// sync can decide whether to push (local newer) or pull (cloud newer).
+function stampLocalWrite() {
+  localStorage.setItem(LAST_WRITE_KEY, Date.now().toString())
+}
+
+function getLastLocalWriteAt() {
+  return parseInt(localStorage.getItem(LAST_WRITE_KEY) || '0')
 }
 
 // ── Sync status — a tiny pub-sub so the UI (settings sheet, status dot) can
@@ -74,6 +85,36 @@ export async function forceSync(code) {
   }
 }
 
+// ── Startup sync — decides push vs pull based on timestamps to avoid
+// overwriting local data that hasn't been pushed yet. ─────────────────────
+async function startupSync(code) {
+  // Fetch only the metadata first (cheap) to compare timestamps
+  const { data: meta } = await supabase
+    .from('farm_sync')
+    .select('updated_at')
+    .eq('code', code.toUpperCase())
+    .maybeSingle()
+
+  if (!meta) {
+    // Nothing in cloud yet — push local data up
+    await pushToCloud(code)
+    lastPushAt = Date.now()
+    return
+  }
+
+  const lastLocalWrite = getLastLocalWriteAt()
+  const cloudTs = new Date(meta.updated_at).getTime()
+
+  if (lastLocalWrite > cloudTs) {
+    // Local has newer changes that haven't reached the cloud — push
+    await pushToCloud(code)
+    lastPushAt = Date.now()
+  } else {
+    // Cloud is newer (or equal) — safe to pull
+    await pullFromCloud(code)
+  }
+}
+
 // ── Auto-sync — push shortly after any local change, pull the instant another
 // device pushes. Call once per session after the user has a farm. ─────────
 let autoSyncCleanup = null
@@ -82,13 +123,13 @@ export function startAutoSync(code) {
   if (autoSyncCleanup) return autoSyncCleanup
   let pushTimer = null
 
-  // Pull latest snapshot immediately on startup — ensures fresh logins and
-  // newly-joined members always see current farm data without waiting for a write
-  pullFromCloud(code).then(() => {
+  // Startup: push if local is newer, pull if cloud is newer
+  startupSync(code).then(() => {
     setSyncStatus({ state: 'synced', lastSyncedAt: new Date(), error: null })
-  }).catch(() => { /* no snapshot yet — owner hasn't pushed, that's fine */ })
+  }).catch(() => { /* offline or no snapshot yet — fine */ })
 
   function scheduleDebouncedPush() {
+    stampLocalWrite()  // track that local data changed
     clearTimeout(pushTimer)
     pushTimer = setTimeout(() => { forceSync(code).catch(() => {}) }, PUSH_DEBOUNCE_MS)
   }
