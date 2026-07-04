@@ -111,6 +111,26 @@ export default function EditWellSheet({ well, onClose, onSaved, fieldMode = fals
   const isDiesel = type === 'diesel'
   const typeColor = type === 'electric' ? '#3b82f6' : '#f97316'
 
+  async function handleDelete() {
+    if (!confirm(`Delete "${well.name}"? This will also delete all risers, runs, and logs tied to this well.`)) return
+    const risers = await db.risers.where('wellId').equals(well.id).toArray()
+    const riserIds = risers.map(r => r.id)
+    const runs = riserIds.length ? await db.runs.where('riserId').anyOf(riserIds).toArray() : []
+    const runIds = runs.map(r => r.id)
+    if (runIds.length) {
+      await db.waterLogs.where('runId').anyOf(runIds).delete()
+      await db.segments.where('runId').anyOf(runIds).delete()
+      await db.tees.where('runId').anyOf(runIds).delete()
+      await db.runs.where('id').anyOf(runIds).delete()
+    }
+    await db.waterLogs.where('wellId').equals(well.id).delete()
+    await db.undergrounds.where('fromId').equals(well.id).delete()
+    if (riserIds.length) await db.undergrounds.where('riserId').anyOf(riserIds).delete()
+    await db.risers.where('wellId').equals(well.id).delete()
+    await db.wells.delete(well.id)
+    onSaved()
+  }
+
   async function handleSave() {
     if (!name.trim()) return
     setSaving(true)
@@ -208,6 +228,14 @@ export default function EditWellSheet({ well, onClose, onSaved, fieldMode = fals
           className="w-full py-3 rounded-xl font-semibold text-white bg-green-500 hover:bg-green-400 disabled:opacity-40 transition-all">
           {saving ? 'Saving…' : 'Save Well'}
         </button>
+
+        {!fieldMode && (
+          <button
+            onClick={handleDelete}
+            className="w-full py-2 rounded-xl text-sm text-red-700 hover:text-red-500 border border-red-900/40 hover:border-red-700/40 transition-all">
+            Delete Well
+          </button>
+        )}
 
         {/* Usage history — field mode only */}
         {fieldMode && <WellUsageHistory wellId={well.id} />}
