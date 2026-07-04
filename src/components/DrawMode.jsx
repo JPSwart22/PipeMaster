@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useMap, useMapEvents, Polyline, Polygon, Marker } from 'react-leaflet'
 import L from 'leaflet'
 
@@ -31,6 +32,14 @@ function ptToSegDist(p, a, b) {
   if (lenSq === 0) return Math.hypot(apx, apy)
   const t = Math.max(0, Math.min(1, (apx * abx + apy * aby) / lenSq))
   return Math.hypot(apx - t * abx, apy - t * aby)
+}
+
+function CursorTracker({ onMove }) {
+  useMapEvents({
+    mousemove(e) { onMove([e.latlng.lat, e.latlng.lng]) },
+    mouseout()   { onMove(null) },
+  })
+  return null
 }
 
 function DrawClickHandler({ points, forcePolyline, onMapClick, onInsertPoint }) {
@@ -69,9 +78,15 @@ function DrawClickHandler({ points, forcePolyline, onMapClick, onInsertPoint }) 
   return null
 }
 
-export default function DrawMode({ points, onMapClick, onPointDrag, onInsertPoint, color = '#22c55e', forcePolyline = false }) {
+export default function DrawMode({ points, onMapClick, onPointDrag, onInsertPoint, onCursorMove, color = '#22c55e', forcePolyline = false }) {
+  const [cursorPos, setCursorPos] = useState(null)
   const icon = makeDotIcon(color)
   const hasPolygon = !forcePolyline && points.length >= 3
+
+  function handleCursorMove(pos) {
+    setCursorPos(pos)
+    onCursorMove?.(pos)
+  }
 
   return (
     <>
@@ -81,6 +96,8 @@ export default function DrawMode({ points, onMapClick, onPointDrag, onInsertPoin
         onMapClick={onMapClick}
         onInsertPoint={onInsertPoint ?? (() => {})}
       />
+
+      {onCursorMove && <CursorTracker onMove={handleCursorMove} />}
 
       {hasPolygon && (
         <Polygon
@@ -92,6 +109,14 @@ export default function DrawMode({ points, onMapClick, onPointDrag, onInsertPoin
         <Polyline
           positions={points}
           pathOptions={{ color, weight: 2, dashArray: '6 4' }}
+        />
+      )}
+
+      {/* Ghost line from last point to cursor (mouse/pen only) */}
+      {forcePolyline && points.length >= 1 && cursorPos && (
+        <Polyline
+          positions={[points[points.length - 1], cursorPos]}
+          pathOptions={{ color, weight: 2, dashArray: '4 6', opacity: 0.45 }}
         />
       )}
 

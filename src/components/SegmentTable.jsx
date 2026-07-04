@@ -67,7 +67,7 @@ function SegRow({ seg, index, prevEndFt, onChange, onRemove }) {
   )
 }
 
-export default function SegmentTable({ segs, setSegs }) {
+export default function SegmentTable({ segs, setSegs, totalFt }) {
   const [mergeAt, setMergeAt] = useState(null)
 
   function updateSeg(i, field, val) {
@@ -81,7 +81,7 @@ export default function SegmentTable({ segs, setSegs }) {
 
   function addSeg() {
     const lastEndFt = segs[segs.length - 1]?.endFt ?? 0
-    setSegs(prev => [...prev, { holeSize: '5/16"', endFt: lastEndFt, furrowCount: null }])
+    setSegs(prev => [...prev, { holeSize: '5/8"', endFt: totalFt || lastEndFt, furrowCount: null }])
   }
 
   function startMerge(i) {
@@ -114,7 +114,14 @@ export default function SegmentTable({ segs, setSegs }) {
     <div>
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm text-gray-400">Segments</span>
-        <span className="text-xs text-gray-600">hole · end ft · furrows</span>
+        <div className="flex items-center gap-2.5">
+          {totalFt > 0 && (
+            <span className="text-xs font-mono tabular-nums font-semibold" style={{ color: '#fdba74' }}>
+              {totalFt.toLocaleString()} ft
+            </span>
+          )}
+          <span className="text-xs text-gray-600">hole · end ft · furrows</span>
+        </div>
       </div>
 
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>

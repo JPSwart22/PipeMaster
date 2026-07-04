@@ -338,7 +338,7 @@ export default function SaveRunSheet({ path: initialPath, riserId, fieldId, teeI
               className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border border-green-500/40 text-green-400 text-sm font-medium hover:bg-green-500/10 active:bg-green-500/20 disabled:opacity-30 transition-all">
               📍 Mark hole sizes on map
             </button>
-            <SegmentTable segs={line.segs} setSegs={(u) => setLineSegs(i, u)} />
+            <SegmentTable segs={line.segs} setSegs={(u) => setLineSegs(i, u)} totalFt={totalFt} />
           </div>
         ))}
 

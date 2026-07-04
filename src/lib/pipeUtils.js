@@ -117,6 +117,32 @@ export function segmentAtFt(segments, ft) {
   return ft < sorted[0].startFt ? sorted[0] : sorted[sorted.length - 1]
 }
 
+// Rewrites a segment list so that [startFt, endFt] uses newHoleSize/newFurrowPattern.
+// Segments outside the range are kept intact; segments that overlap the range are split.
+export function applyRangeEdit(segs, startFt, endFt, newHoleSize, newFurrowPattern) {
+  if (!segs?.length || startFt >= endFt) return segs
+  // Expand implicit startFt
+  const full = segs.map((s, i) => ({
+    startFt:      i === 0 ? 0 : segs[i - 1].endFt,
+    endFt:        s.endFt,
+    holeSize:     s.holeSize,
+    furrowCount:  s.furrowCount ?? null,
+    furrowPattern: s.furrowPattern ?? null,
+  }))
+  const result = []
+  for (const seg of full) {
+    if (seg.endFt <= startFt || seg.startFt >= endFt) {
+      result.push(seg)
+    } else {
+      if (seg.startFt < startFt) result.push({ ...seg, endFt: startFt })
+      if (seg.endFt   > endFt)   result.push({ ...seg, startFt: endFt })
+    }
+  }
+  result.push({ startFt, endFt, holeSize: newHoleSize, furrowCount: null, furrowPattern: newFurrowPattern ?? null })
+  result.sort((a, b) => a.startFt - b.startFt)
+  return result.map(s => ({ holeSize: s.holeSize, endFt: s.endFt, furrowCount: s.furrowCount, furrowPattern: s.furrowPattern }))
+}
+
 // Returns the sub-polyline of path between startFt and endFt
 export function slicePath(path, startFt, endFt) {
   if (!path?.length || endFt <= startFt) return []

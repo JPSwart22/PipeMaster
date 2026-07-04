@@ -3,10 +3,10 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import BottomSheet from './BottomSheet'
 import SegmentTable from './SegmentTable'
 import db from '../lib/db'
-import { pathTotalFt } from '../lib/pipeUtils'
+import { pathTotalFt, applyRangeEdit } from '../lib/pipeUtils'
 import { parsePipeSheet } from '../lib/parseSheet'
 
-export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRequest, onAddRunFromTee, onMarkHolesRequest, markedSegs, onClose, onSaved }) {
+export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRequest, onAddRunFromTee, onMarkHolesRequest, markedSegs, onRangeEditRequest, rangeEditResult, onClose, onSaved }) {
   const existingSegments = useLiveQuery(
     () => db.segments.where('runId').equals(run.id).toArray(),
     [run.id]
@@ -40,6 +40,22 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
       return updated
     })
   }, [markedSegs])
+
+  // Apply range edit result from map interaction
+  useEffect(() => {
+    if (!rangeEditResult) return
+    setLines(prev => {
+      if (!prev) return prev
+      const updated = [...prev]
+      const line = updated[rangeEditResult.lineIdx]
+      if (!line) return prev
+      updated[rangeEditResult.lineIdx] = {
+        ...line,
+        segs: applyRangeEdit(line.segs, rangeEditResult.startFt, rangeEditResult.endFt, rangeEditResult.holeSize, rangeEditResult.furrowPattern),
+      }
+      return updated
+    })
+  }, [rangeEditResult?.at])
 
   useEffect(() => {
     if (!existingSegments || lines !== null) return
@@ -313,7 +329,13 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
               className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border border-green-500/40 text-green-400 text-sm font-medium hover:bg-green-500/10 active:bg-green-500/20 disabled:opacity-30 transition-all">
               📍 Mark hole sizes on map
             </button>
-            <SegmentTable segs={line.segs} setSegs={(u) => setLineSegs(i, u)} />
+            <button
+              onClick={() => onRangeEditRequest(path, i)}
+              disabled={!path?.length}
+              className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl border border-orange-500/40 text-orange-400 text-sm font-medium hover:bg-orange-500/10 active:bg-orange-500/20 disabled:opacity-30 transition-all">
+              ✏️ Edit range on map
+            </button>
+            <SegmentTable segs={line.segs} setSegs={(u) => setLineSegs(i, u)} totalFt={totalFt} />
           </div>
         ))}
 

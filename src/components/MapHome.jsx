@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import L from 'leaflet'
 import '../lib/leafletIcons'
 import db from '../lib/db'
-import { getPointAtFt, nearestFtOnPath, pathTotalFt, slicePath, HOLE_SIZES, HOLE_COLOR } from '../lib/pipeUtils'
+import { getPointAtFt, nearestFtOnPath, pathTotalFt, slicePath, HOLE_SIZES, HOLE_COLOR, applyRangeEdit } from '../lib/pipeUtils'
 import DrawMode, { nextColor } from './DrawMode'
 import FieldPolygon from './FieldPolygon'
 import WellMarker from './WellMarker'
@@ -23,6 +23,12 @@ import RunLogSheet from './RunLogSheet'
 import SidePanel from './SidePanel'
 import EditWellSheet from './EditWellSheet'
 import FlagSheet from './FlagSheet'
+
+// ── Tap catcher for range-edit start/end points ───────────────────────────────
+function RangeEditCatcher({ onTap }) {
+  useMapEvents({ click(e) { onTap([e.latlng.lat, e.latlng.lng]) } })
+  return null
+}
 
 // ── Single-tap catcher for placing a tee marker ───────────────────────────────
 function TeePlacementCatcher({ onPlace }) {
@@ -147,11 +153,16 @@ export default function MapHome({ onSwitchToFieldMode }) {
   const [markedSegsResult, setMarkedSegsResult]   = useState(null) // { lineIndex, segs, at }
   const [placingFlag, setPlacingFlag]             = useState(false)
   const [flagSheetData, setFlagSheetData]         = useState(null) // { lat, lon } for new, or flag object for viewing
+  const [drawCursorPos, setDrawCursorPos]         = useState(null)
+  const [rangeEditSession, setRangeEditSession]   = useState(null)
+  // { path, lineIdx, phase: 'start'|'end'|'pick', startFt, startPos, endFt, endPos }
+  const [rangeEditResult, setRangeEditResult]     = useState(null)
+  const [rangeEditPattern, setRangeEditPattern]   = useState('every')
 
   const selectedField = fields?.find(f => f.id === selectedFieldId) ?? null
   const detailField   = fields?.find(f => f.id === detailFieldId)   ?? null
   const isDrawing = drawMode !== null
-  const suppressFieldClick = isDrawing || !!placingTeeForRun || !!markingHoles || placingFlag
+  const suppressFieldClick = isDrawing || !!placingTeeForRun || !!markingHoles || placingFlag || !!rangeEditSession
 
   function handleStartTour() {
     setFabMenuOpen(false)
@@ -232,6 +243,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
   }
 
   function handleFinish() {
+    setDrawCursorPos(null)
     if (points.length < (drawMode === 'run' ? 2 : 3)) return
     if (drawMode === 'field') { setDrawMode(null); setSheet('saveField') }
     if (drawMode === 'edit')  { saveEditedBoundary() }
@@ -251,6 +263,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
   }
 
   function handleCancelDraw() {
+    setDrawCursorPos(null)
     setDrawMode(null); setPoints([]); setActiveField(null)
     if (drawingForRun) {
       setDrawingForRun(false)
@@ -395,6 +408,43 @@ export default function MapHome({ onSwitchToFieldMode }) {
     setMarkingPendingFt(null)
   }
 
+  // ── Range edit (tap start + end on map to reassign hole size) ────────────────
+  function handleRangeEditRequest(path, lineIdx) {
+    setRangeEditSession({ path, lineIdx, phase: 'start', startFt: null, startPos: null, endFt: null, endPos: null })
+    setRangeEditResult(null)
+    setRangeEditPattern('every')
+  }
+
+  function handleRangeEditTap(latlng) {
+    if (!rangeEditSession) return
+    const { path, phase } = rangeEditSession
+    const ft  = nearestFtOnPath(path, latlng)
+    const pos = getPointAtFt(path, ft)
+    if (phase === 'start') {
+      setRangeEditSession(prev => ({ ...prev, phase: 'end', startFt: ft, startPos: pos }))
+    } else if (phase === 'end') {
+      if (ft <= rangeEditSession.startFt) return // must be after start
+      setRangeEditSession(prev => ({ ...prev, phase: 'pick', endFt: ft, endPos: pos }))
+    }
+  }
+
+  function handleRangePickSize(holeSize) {
+    if (!rangeEditSession) return
+    setRangeEditResult({
+      lineIdx:      rangeEditSession.lineIdx,
+      startFt:      rangeEditSession.startFt,
+      endFt:        rangeEditSession.endFt,
+      holeSize,
+      furrowPattern: rangeEditPattern,
+      at:           Date.now(),
+    })
+    setRangeEditSession(null)
+  }
+
+  function handleRangeEditCancel() {
+    setRangeEditSession(null)
+  }
+
   function handleEditRun(run) {
     setEditingRun(run)
     setPendingEditPath(null)
@@ -488,10 +538,28 @@ export default function MapHome({ onSwitchToFieldMode }) {
           {isDrawing && (
             <DrawMode points={points} onMapClick={handleMapTap} onPointDrag={handlePointDrag} onInsertPoint={handleInsertPoint}
                       color={drawMode === 'edit' ? (activeField?.color ?? '#22c55e') : drawMode === 'run' ? '#f97316' : '#22c55e'}
-                      forcePolyline={drawMode === 'run'} />
+                      forcePolyline={drawMode === 'run'}
+                      onCursorMove={drawMode === 'run' ? setDrawCursorPos : undefined} />
           )}
 
           {placingTeeForRun && <TeePlacementCatcher onPlace={handlePlaceTee} />}
+
+          {/* Range edit — tap catcher, highlight strip, start/end dots */}
+          {rangeEditSession && <RangeEditCatcher onTap={handleRangeEditTap} />}
+          {rangeEditSession?.startFt != null && rangeEditSession?.endFt != null && (
+            <Polyline
+              positions={slicePath(rangeEditSession.path, rangeEditSession.startFt, rangeEditSession.endFt)}
+              pathOptions={{ color: '#f97316', weight: 10, opacity: 0.75 }}
+            />
+          )}
+          {rangeEditSession?.startPos && (
+            <CircleMarker center={rangeEditSession.startPos} radius={9}
+                          pathOptions={{ fillColor: '#f97316', fillOpacity: 1, color: 'white', weight: 2.5 }} />
+          )}
+          {rangeEditSession?.endPos && (
+            <CircleMarker center={rangeEditSession.endPos} radius={9}
+                          pathOptions={{ fillColor: '#ef4444', fillOpacity: 1, color: 'white', weight: 2.5 }} />
+          )}
 
           {/* Hole-marking-in-progress preview */}
           {markingHoles?.segs.map((seg, i) => {
@@ -637,6 +705,65 @@ export default function MapHome({ onSwitchToFieldMode }) {
           </>
         )}
 
+        {/* Range edit overlays */}
+        {rangeEditSession && (
+          <>
+            <div className="absolute top-14 left-0 right-0 z-[1000] flex justify-center pointer-events-none">
+              <div className="border text-sm px-4 py-2 rounded-full"
+                   style={{ background: 'rgba(124,45,18,0.88)', borderColor: 'rgba(249,115,22,0.5)', color: '#fdba74' }}>
+                {rangeEditSession.phase === 'start' && 'Tap the START of the section to change'}
+                {rangeEditSession.phase === 'end'   && `Start: ${rangeEditSession.startFt} ft — now tap the END`}
+                {rangeEditSession.phase === 'pick'  && `${rangeEditSession.startFt} – ${rangeEditSession.endFt} ft — pick the new hole size`}
+              </div>
+            </div>
+
+            {rangeEditSession.phase === 'pick' && (
+              <div className="absolute bottom-24 left-0 right-0 z-[1000] flex justify-center px-6">
+                <div className="flex flex-col gap-2 p-3 rounded-2xl w-full max-w-sm"
+                     style={{ background: 'rgba(11,20,31,0.97)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                  <div className="flex gap-2 justify-center">
+                    {['every', 'alternate'].map(p => (
+                      <button key={p} onClick={() => setRangeEditPattern(p)}
+                              className="flex-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+                              style={{
+                                background: rangeEditPattern === p ? 'rgba(249,115,22,0.2)' : 'transparent',
+                                border: `1px solid ${rangeEditPattern === p ? '#f97316' : 'rgba(255,255,255,0.15)'}`,
+                                color: rangeEditPattern === p ? '#fdba74' : '#9ca3af',
+                              }}>
+                        {p === 'every' ? 'Every furrow' : 'Every other'}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    {HOLE_SIZES.filter(s => s !== 'Supply').map(size => (
+                      <button key={size} onClick={() => handleRangePickSize(size)}
+                              className="px-3 py-2 rounded-lg text-sm font-medium transition-all active:scale-95"
+                              style={{ background: `${HOLE_COLOR[size]}25`, border: `1px solid ${HOLE_COLOR[size]}60`, color: HOLE_COLOR[size] }}>
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="absolute bottom-8 left-0 right-0 z-[1000] flex justify-center gap-3 px-6">
+              {rangeEditSession.phase !== 'start' && (
+                <button onClick={() => setRangeEditSession(prev => ({ ...prev, phase: 'start', startFt: null, startPos: null, endFt: null, endPos: null }))}
+                        className="flex-1 py-3 rounded-xl font-semibold text-gray-300 border border-white/20 transition-all"
+                        style={{ background: 'rgba(15,25,35,0.9)' }}>
+                  ← Back
+                </button>
+              )}
+              <button onClick={handleRangeEditCancel}
+                      className="flex-1 py-3 rounded-xl font-semibold text-gray-300 border border-white/20 transition-all"
+                      style={{ background: 'rgba(15,25,35,0.9)' }}>
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
+
         {/* Draw banner */}
         {isDrawing && (
           <div className="absolute top-14 left-0 right-0 z-[1000] flex justify-center pointer-events-none">
@@ -651,11 +778,11 @@ export default function MapHome({ onSwitchToFieldMode }) {
         )}
 
         {/* Live distance counter while drawing a run */}
-        {isDrawing && drawMode === 'run' && points.length >= 2 && (
+        {isDrawing && drawMode === 'run' && points.length >= 1 && (
           <div className="absolute bottom-24 left-0 right-0 z-[1000] flex justify-center pointer-events-none">
             <div id="pm-draw-distance" className="border text-base px-5 py-2 rounded-full font-mono tabular-nums font-semibold"
                  style={{ background: 'rgba(124,45,18,0.92)', borderColor: 'rgba(249,115,22,0.55)', color: '#fdba74', backdropFilter: 'blur(4px)' }}>
-              {Math.round(pathTotalFt(points)).toLocaleString()} ft
+              {Math.round(pathTotalFt(drawCursorPos ? [...points, drawCursorPos] : points)).toLocaleString()} ft
             </div>
           </div>
         )}
@@ -772,7 +899,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
           </div>
         )}
         {sheet === 'editRun' && editingRun && (
-          <div style={(drawingForEditRun || placingTeeForRun || markingHoles) ? { display: 'none' } : {}}>
+          <div style={(drawingForEditRun || placingTeeForRun || markingHoles || rangeEditSession) ? { display: 'none' } : {}}>
             <EditRunSheet
               run={editingRun}
               drawnPath={pendingEditPath}
@@ -781,8 +908,10 @@ export default function MapHome({ onSwitchToFieldMode }) {
               onAddRunFromTee={handleAddRunFromTee}
               onMarkHolesRequest={handleMarkHolesRequest}
               markedSegs={markedSegsResult}
-              onClose={() => { setSheet(null); setEditingRun(null); setPendingEditPath(null); setMarkedSegsResult(null) }}
-              onSaved={() => { setSheet(null); setEditingRun(null); setPendingEditPath(null); setMarkedSegsResult(null) }}
+              onRangeEditRequest={handleRangeEditRequest}
+              rangeEditResult={rangeEditResult}
+              onClose={() => { setSheet(null); setEditingRun(null); setPendingEditPath(null); setMarkedSegsResult(null); setRangeEditResult(null) }}
+              onSaved={() => { setSheet(null); setEditingRun(null); setPendingEditPath(null); setMarkedSegsResult(null); setRangeEditResult(null) }}
             />
           </div>
         )}
