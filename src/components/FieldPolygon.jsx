@@ -7,10 +7,9 @@ export default function FieldPolygon({ field, isSelected, onClick }) {
       pathOptions={{
         color: field.color,
         fillColor: field.color,
-        fillOpacity: isSelected ? 0.15 : 0.2,
-        weight: isSelected ? 3 : 2,
-        opacity: isSelected ? 1 : 0.8,
-        dashArray: isSelected ? null : null,
+        fillOpacity: isSelected ? 0.10 : 0.04,
+        weight: isSelected ? 2.5 : 1.5,
+        opacity: isSelected ? 0.9 : 0.5,
       }}
       eventHandlers={{
         click(e) {

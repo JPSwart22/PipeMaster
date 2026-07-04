@@ -508,6 +508,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
                 segments={segs}
                 onSelect={handleEditRun}
                 selectable={!isDrawing && !placingTeeForRun}
+                showColors={run.fieldId === selectedFieldId}
               />
             )
           })}
@@ -589,7 +590,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
               <span className="text-lg">☰</span>
             </button>
             <span className="text-green-400 font-bold text-lg tracking-wide">PIPEMASTER</span>
-            <span className="text-xs text-gray-600 uppercase tracking-widest border border-white/10 rounded px-2 py-0.5 hidden md:inline">Dev Mode</span>
+            <span className="text-xs text-gray-600 uppercase tracking-widest border border-white/10 rounded px-2 py-0.5 hidden md:inline">Edit Mode</span>
           </div>
           <div className="flex items-center gap-3">
             <span className="text-xs text-gray-500 uppercase tracking-widest">

@@ -8,7 +8,7 @@ const TOPICS = [
       {
         visual: 'fields-draw',
         title: 'Tap to draw — tap an edge to insert',
-        body: 'In Dev Mode, tap the satellite map to place corner points. The field outline builds as you go. To add a point between two existing corners, tap directly on the line between them — a new corner appears right there so you can fine-tune curves without starting over.',
+        body: 'In Edit Mode, tap the satellite map to place corner points. The field outline builds as you go. To add a point between two existing corners, tap directly on the line between them — a new corner appears right there so you can fine-tune curves without starting over.',
       },
       {
         visual: 'fields-drag',
@@ -103,7 +103,7 @@ const TOPICS = [
       {
         visual: 'flags',
         title: 'Mark anything in the field',
-        body: 'Tap the 🚩 button in Field Mode or from the + menu in Dev Mode. The flag drops at your current GPS location. Add a title and optional notes. Flags show on the map for the whole team and stay until you tap one and delete it.',
+        body: 'Tap the 🚩 button in Field Mode or from the + menu in Edit Mode. The flag drops at your current GPS location. Add a title and optional notes. Flags show on the map for the whole team and stay until you tap one and delete it.',
       },
     ],
   },
@@ -512,7 +512,7 @@ function HelpVisual({ id, active }) {
           <span className="text-xl">📱</span>
           <span className="text-[8px] text-green-400 font-bold">OWNER</span>
         </div>
-        <div className="text-[9px] text-gray-500">Dev Mode</div>
+        <div className="text-[9px] text-gray-500">Edit Mode</div>
       </div>
       <div className="flex flex-col items-center gap-1.5">
         <div className="text-green-400 text-base font-bold" style={{ animation: active ? 'tutArrowRight 1.2s 0.3s ease-in-out infinite' : 'none' }}>→</div>

@@ -24,7 +24,7 @@ export function startTour({ setPanelOpen }) {
           popover: {
             title: 'Welcome to Pipemaster',
             description:
-              'You\'re in <strong>Dev Mode</strong> — where farm managers map pipe systems, import Delta Plastics schematics, and build the full run layout.<br><br>This tour covers all the major features in about 2 minutes.',
+              'You\'re in <strong>Edit Mode</strong> — where farm managers map pipe systems, import Delta Plastics schematics, and build the full run layout.<br><br>This tour covers all the major features in about 2 minutes.',
           },
         },
 
@@ -33,7 +33,7 @@ export function startTour({ setPanelOpen }) {
           popover: {
             title: 'Tip: Use the Web App for Setup',
             description:
-              'Dev Mode is <strong>much easier on a desktop or laptop</strong> at <strong>pipemaster.vercel.app</strong> — drawing field boundaries, tracing run paths, and editing segment tables are all faster with a mouse and keyboard.<br><br>Use the phone app mainly for <strong>Field Mode</strong> and <strong>Punching Mode</strong> out on the farm.',
+              'Edit Mode is <strong>much easier on a desktop or laptop</strong> at <strong>pipemaster.vercel.app</strong> — drawing field boundaries, tracing run paths, and editing segment tables are all faster with a mouse and keyboard.<br><br>Use the phone app mainly for <strong>Field Mode</strong> and <strong>Punching Mode</strong> out on the farm.',
           },
         },
 
@@ -54,7 +54,7 @@ export function startTour({ setPanelOpen }) {
           popover: {
             title: 'Field Mode',
             description:
-              'Switch to <strong>Field Mode</strong> for your crew — no setup menus, just run controls. Come back to Dev Mode any time to add or edit pipe.',
+              'Switch to <strong>Field Mode</strong> for your crew — no setup menus, just run controls. Come back to Edit Mode any time to add or edit pipe.',
             side: 'bottom',
             align: 'end',
           },

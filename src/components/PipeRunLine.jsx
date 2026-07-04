@@ -5,7 +5,7 @@ import { slicePath, getPointAtFt, offsetPath, HOLE_COLOR } from '../lib/pipeUtil
 const LINE_SPACING_M = 2.2 // ~ a 15ft pad, just enough to render side by side
 const STATUS_COLOR = { running: '#22c55e', idle: '#6b7280' }
 
-export default function PipeRunLine({ run, segments, onSelect, selectable = true, statusColor = false }) {
+export default function PipeRunLine({ run, segments, onSelect, selectable = true, statusColor = false, showColors = true }) {
   if (!run?.path?.length || !segments?.length) return null
 
   const lineNames = [...new Set(segments.map(s => s.line || 'Line 1'))]
@@ -47,6 +47,10 @@ export default function PipeRunLine({ run, segments, onSelect, selectable = true
                 <Polyline positions={linePath}
                   pathOptions={{ color: runColor, weight: run.status === 'running' ? 5 : 3, opacity: run.status === 'running' ? 0.95 : 0.55 }} />
               </>
+            ) : !showColors ? (
+              // Edit Mode zoomed-out: simple neutral line, no segment colors
+              <Polyline positions={linePath}
+                pathOptions={{ color: '#94a3b8', weight: 2, opacity: 0.55 }} />
             ) : (
               <>
                 {sorted.map((seg, i) => {

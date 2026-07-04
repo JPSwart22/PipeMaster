@@ -234,7 +234,7 @@ export default function FieldModeHome({ onSwitchToDevMode }) {
           </button>
           <button onClick={onSwitchToDevMode}
                   className="text-sm font-semibold text-gray-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 rounded-xl px-4 py-2.5 transition-colors">
-            ⚙ Dev Mode
+            ⚙ Edit Mode
           </button>
         </div>
       </div>

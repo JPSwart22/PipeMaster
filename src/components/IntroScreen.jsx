@@ -10,7 +10,7 @@ const SLIDES = [
   {
     icon: '🗺️',
     title: 'Set Up Your Farm',
-    body: 'In Dev Mode, tap + to add a Farm, then draw your Field boundaries on the satellite map. Add Wells and Risers to match your physical setup.',
+    body: 'In Edit Mode, tap + to add a Farm, then draw your Field boundaries on the satellite map. Add Wells and Risers to match your physical setup.',
     color: '#3b82f6',
   },
   {

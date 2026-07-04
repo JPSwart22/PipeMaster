@@ -11,7 +11,7 @@ const SLIDES = [
     id: 'fields',
     visual: 'fields',
     title: 'Draw Your Fields',
-    body: 'In Dev Mode, tap corners on the live satellite map to outline any field shape. Drag corners to adjust. Desktop is easiest with a mouse for precise boundaries.',
+    body: 'In Edit Mode, tap corners on the live satellite map to outline any field shape. Drag corners to adjust. Desktop is easiest with a mouse for precise boundaries.',
   },
   {
     id: 'wells',
@@ -522,7 +522,7 @@ function Visual({ id, active }) {
           <span className="text-xl">📱</span>
           <span className="text-[8px] text-green-400 font-bold">OWNER</span>
         </div>
-        <div className="text-[9px] text-gray-500">Dev Mode</div>
+        <div className="text-[9px] text-gray-500">Edit Mode</div>
       </div>
       <div className="flex flex-col items-center gap-1.5">
         <div className="text-green-400 text-base font-bold"
