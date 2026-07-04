@@ -22,6 +22,7 @@ import EditRunSheet from './EditRunSheet'
 import RunLogSheet from './RunLogSheet'
 import SidePanel from './SidePanel'
 import EditWellSheet from './EditWellSheet'
+import EditRiserSheet from './EditRiserSheet'
 import FlagSheet from './FlagSheet'
 
 // ── Tap catcher for range-edit start/end points ───────────────────────────────
@@ -139,6 +140,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
   const [editingRun, setEditingRun]                   = useState(null)
   const [loggingRun, setLoggingRun]                   = useState(null)
   const [editingWell, setEditingWell]                 = useState(null)
+  const [editingRiser, setEditingRiser]               = useState(null)
   const [sheet, setSheet]                             = useState(null)
   const [panelOpen, setPanelOpen]                 = useState(true)
   const [drawingForRun, setDrawingForRun]         = useState(false)
@@ -527,7 +529,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
           })}
 
           {wells?.map(w => <WellMarker key={w.id} well={w} onClick={well => setEditingWell(well)} />)}
-          {risers?.map(r => <RiserMarker key={r.id} riser={r} />)}
+          {risers?.map(r => <RiserMarker key={r.id} riser={r} onClick={riser => setEditingRiser(riser)} />)}
 
           {flags?.map(flag => (
             <Marker key={flag.id} position={[flag.lat, flag.lon]} icon={FLAG_ICON}
@@ -927,6 +929,13 @@ export default function MapHome({ onSwitchToFieldMode }) {
             well={wells?.find(w => w.id === editingWell.id) ?? editingWell}
             onClose={() => setEditingWell(null)}
             onSaved={() => setEditingWell(null)}
+          />
+        )}
+        {editingRiser && (
+          <EditRiserSheet
+            riser={risers?.find(r => r.id === editingRiser.id) ?? editingRiser}
+            onClose={() => setEditingRiser(null)}
+            onSaved={() => setEditingRiser(null)}
           />
         )}
         {flagSheetData && (
