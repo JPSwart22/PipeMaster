@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import BottomSheet from './BottomSheet'
+import FeedbackSheet from './FeedbackSheet'
 import { getMyFarm } from '../lib/farms'
 import { getFarmMembers } from '../lib/members'
 import { getSyncStatus, onSyncStatusChange, forceSync, getSavedFarmCode } from '../lib/cloudSync'
@@ -41,6 +42,7 @@ export default function SettingsSheet({ onClose }) {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const [showFeedback, setShowFeedback] = useState(false)
 
   useEffect(() => onSyncStatusChange(setStatus), [])
 
@@ -83,6 +85,7 @@ export default function SettingsSheet({ onClose }) {
   }
 
   return (
+    <>
     <BottomSheet title="Settings" onClose={onClose}>
       <div className="flex flex-col gap-4">
 
@@ -176,6 +179,19 @@ export default function SettingsSheet({ onClose }) {
           Help &amp; Guide
         </button>
 
+        {/* Feedback */}
+        <button
+          onClick={() => setShowFeedback(true)}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-gray-300 hover:text-white border border-white/08 hover:border-white/20 transition-all"
+          style={{ background: 'rgba(255,255,255,0.03)' }}>
+          <span className="text-base">💬</span>
+          <div className="flex flex-col text-left flex-1">
+            <span className="font-medium">Send Feedback</span>
+            <span className="text-xs text-gray-500">Suggestions, bugs, or anything on your mind</span>
+          </div>
+          <span className="text-gray-600">›</span>
+        </button>
+
         {/* Support */}
         <div>
           <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Support</div>
@@ -230,5 +246,8 @@ export default function SettingsSheet({ onClose }) {
         </button>
       </div>
     </BottomSheet>
+
+    {showFeedback && <FeedbackSheet onClose={() => setShowFeedback(false)} />}
+    </>
   )
 }
