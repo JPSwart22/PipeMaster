@@ -32,6 +32,23 @@ const PUNCH_PATTERNS = [
   { value: 'alternate', label: 'Every other furrow', color: '#f97316' },
 ]
 
+const HOLE_VOICE = {
+  'Supply':   'Supply line — no holes',
+  '1/4"':     'Switch to one quarter inch',
+  '5/16"':    'Switch to five sixteenths inch',
+  '3/8"':     'Switch to three eighths inch',
+  '7/16"':    'Switch to seven sixteenths inch',
+  '1/2"':     'Switch to one half inch',
+  '9/16"':    'Switch to nine sixteenths inch',
+  '5/8"':     'Switch to five eighths inch',
+  '11/16"':   'Switch to eleven sixteenths inch',
+  '3/4"':     'Switch to three quarters inch',
+  '13/16"':   'Switch to thirteen sixteenths inch',
+  '7/8"':     'Switch to seven eighths inch',
+  '15/16"':   'Switch to fifteen sixteenths inch',
+  '1"':       'Switch to one inch',
+}
+
 export default function PunchingMode({ run, onExit }) {
   const allSegments = useLiveQuery(
     () => db.segments.where('runId').equals(run.id).toArray(),
@@ -82,6 +99,17 @@ export default function PunchingMode({ run, onExit }) {
   const [gpsError, setGpsError] = useState(null)
   const lastHoleSizeRef = useRef(null)
   const audioCtxRef = useRef(null)
+
+  function speakHoleSize(holeSize) {
+    try {
+      window.speechSynthesis.cancel()
+      const text = HOLE_VOICE[holeSize] ?? `Switch to ${holeSize}`
+      const utterance = new SpeechSynthesisUtterance(text)
+      utterance.rate = 0.95
+      utterance.volume = 1.0
+      window.speechSynthesis.speak(utterance)
+    } catch { /* speech not available */ }
+  }
 
   function playChime() {
     try {
@@ -165,6 +193,7 @@ export default function PunchingMode({ run, onExit }) {
           if (lastHoleSizeRef.current !== null) {
             navigator.vibrate?.([200, 100, 200, 100, 200])
             playChime()
+            speakHoleSize(seg.holeSize)
           }
           lastHoleSizeRef.current = seg.holeSize
         }
