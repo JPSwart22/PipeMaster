@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { MapContainer, TileLayer, CircleMarker, Circle, Polyline, useMap } from 'react-leaflet'
-import { ForegroundService } from '@capawesome-team/capacitor-android-foreground-service'
+import { ForegroundService, ServiceType } from '@capawesome-team/capacitor-android-foreground-service'
+import { TextToSpeech } from '@capacitor-community/text-to-speech'
 import db from '../lib/db'
 import { nearestFtOnPath, segmentAtFt, pathTotalFt, HOLE_COLOR } from '../lib/pipeUtils'
 
@@ -101,27 +102,28 @@ export default function PunchingMode({ run, onExit }) {
   const lastHoleSizeRef = useRef(null)
   const audioCtxRef = useRef(null)
 
-  function speakHoleSize(holeSize) {
+  async function speakHoleSize(holeSize) {
+    const text = HOLE_VOICE[holeSize] ?? `Switch to ${holeSize}`
     try {
-      window.speechSynthesis.cancel()
-      const text = HOLE_VOICE[holeSize] ?? `Switch to ${holeSize}`
-      // Small delay ensures audio context is active after haptics/chime
-      setTimeout(() => {
+      await TextToSpeech.stop()
+      await TextToSpeech.speak({
+        text,
+        lang: 'en-US',
+        rate: 0.9,
+        pitch: 1.0,
+        volume: 1.0,
+        category: 'playback',
+      })
+    } catch {
+      // Fallback to Web Speech API
+      try {
+        window.speechSynthesis.cancel()
         const utterance = new SpeechSynthesisUtterance(text)
         utterance.rate = 0.95
         utterance.volume = 1.0
         window.speechSynthesis.speak(utterance)
-      }, 300)
-    } catch { /* speech not available */ }
-  }
-
-  function warmUpSpeech() {
-    try {
-      const u = new SpeechSynthesisUtterance(' ')
-      u.volume = 0
-      window.speechSynthesis.cancel()
-      window.speechSynthesis.speak(u)
-    } catch { /* speech not available */ }
+      } catch { /* speech not available */ }
+    }
   }
 
   async function startForegroundService(runName) {
@@ -133,6 +135,7 @@ export default function PunchingMode({ run, onExit }) {
         smallIcon: 'ic_launcher_foreground',
         notificationChannelId: 'pipemaster_punching',
         notificationChannelName: 'Punching Mode',
+        serviceType: ServiceType.Location,
       })
     } catch { /* not Android or permission denied */ }
   }
@@ -226,7 +229,7 @@ export default function PunchingMode({ run, onExit }) {
           if (lastHoleSizeRef.current !== null) {
             navigator.vibrate?.([200, 100, 200, 100, 200])
             playChime()
-            speakHoleSize(seg.holeSize)
+            speakHoleSize(seg.holeSize).catch(() => {})
           }
           lastHoleSizeRef.current = seg.holeSize
         }
@@ -311,7 +314,7 @@ export default function PunchingMode({ run, onExit }) {
               </div>
             ))}
           </div>
-          <button onClick={() => { warmUpSpeech(); startForegroundService(run.name); setGearConfirmed(true) }}
+          <button onClick={() => { startForegroundService(run.name); setGearConfirmed(true) }}
                   className="w-full max-w-xs py-4 rounded-2xl font-bold text-white text-base active:scale-95 transition-all mt-2"
                   style={{ background: 'linear-gradient(135deg, #f97316, #dc2626)' }}>
             Start punching →
