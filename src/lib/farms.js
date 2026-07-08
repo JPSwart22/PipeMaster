@@ -89,7 +89,7 @@ export async function joinFarmWithCode(code) {
 
   const { data: farm, error } = await supabase
     .from('farms')
-    .select('id, name, code, owner_id')
+    .select('id, name, code, owner_id, sub_status, trial_ends_at, sub_expires_at')
     .eq('code', code.toUpperCase())
     .maybeSingle()
   if (error) throw error

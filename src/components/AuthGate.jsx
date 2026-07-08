@@ -304,5 +304,21 @@ export default function AuthGate({ children }) {
     }} />
   )
 
-  return children
+  const trialDays = (() => {
+    if (farm?.sub_status !== 'trial' || !farm.trial_ends_at) return 0
+    return Math.max(0, Math.ceil((new Date(farm.trial_ends_at) - Date.now()) / 86400000))
+  })()
+
+  return (
+    <>
+      {trialDays > 0 && (
+        <div className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium pointer-events-none select-none"
+             style={{ background: 'rgba(234,179,8,0.1)', borderBottom: '1px solid rgba(234,179,8,0.2)', color: '#fbbf24' }}>
+          <span>⏳</span>
+          <span>{trialDays} day{trialDays !== 1 ? 's' : ''} left in your free trial</span>
+        </div>
+      )}
+      {children}
+    </>
+  )
 }

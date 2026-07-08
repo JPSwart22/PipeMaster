@@ -47,7 +47,15 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Required on Android 13+ to post any notification including foreground service -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Required for navigator.vibrate() in WebView -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Keeps CPU running so GPS callbacks don't pause when screen locks -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Allows requesting battery optimization exemption (user prompted in settings) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 </manifest>

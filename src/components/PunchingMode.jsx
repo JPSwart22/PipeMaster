@@ -34,21 +34,29 @@ const PUNCH_PATTERNS = [
   { value: 'alternate', label: 'Every other furrow', color: '#f97316' },
 ]
 
-const HOLE_VOICE = {
-  'Supply':   'Supply line — no holes',
-  '1/4"':     'Switch to one quarter inch',
-  '5/16"':    'Switch to five sixteenths inch',
-  '3/8"':     'Switch to three eighths inch',
-  '7/16"':    'Switch to seven sixteenths inch',
-  '1/2"':     'Switch to one half inch',
-  '9/16"':    'Switch to nine sixteenths inch',
-  '5/8"':     'Switch to five eighths inch',
-  '11/16"':   'Switch to eleven sixteenths inch',
-  '3/4"':     'Switch to three quarters inch',
-  '13/16"':   'Switch to thirteen sixteenths inch',
-  '7/8"':     'Switch to seven eighths inch',
-  '15/16"':   'Switch to fifteen sixteenths inch',
-  '1"':       'Switch to one inch',
+const HOLE_FRACTIONS = {
+  '1/4"':  'one quarter',
+  '5/16"': 'five sixteenths',
+  '3/8"':  'three eighths',
+  '7/16"': 'seven sixteenths',
+  '1/2"':  'one half',
+  '9/16"': 'nine sixteenths',
+  '5/8"':  'five eighths',
+  '11/16"':'eleven sixteenths',
+  '3/4"':  'three quarters',
+  '13/16"':'thirteen sixteenths',
+  '7/8"':  'seven eighths',
+  '15/16"':'fifteen sixteenths',
+  '1"':    'one inch',
+}
+
+function buildVoiceText(holeSize, pattern) {
+  if (holeSize === 'Supply') return 'Supply line. No holes.'
+  const fraction = HOLE_FRACTIONS[holeSize] ?? holeSize
+  const patternText = pattern === 'every'     ? 'every furrow'
+                    : pattern === 'alternate' ? 'alternating'
+                    : ''
+  return patternText ? `Switch to ${fraction}. ${patternText}.` : `Switch to ${fraction}.`
 }
 
 export default function PunchingMode({ run, onExit }) {
@@ -102,22 +110,20 @@ export default function PunchingMode({ run, onExit }) {
   const lastHoleSizeRef = useRef(null)
   const audioCtxRef = useRef(null)
 
-  async function speakHoleSize(holeSize) {
-    const text = HOLE_VOICE[holeSize] ?? `Switch to ${holeSize}`
+  async function speakHoleSize(holeSize, pattern) {
+    const text = buildVoiceText(holeSize, pattern)
     try {
-      await TextToSpeech.stop()
+      try { await TextToSpeech.stop() } catch { /* nothing playing yet */ }
       await TextToSpeech.speak({
         text,
         lang: 'en-US',
         rate: 0.9,
         pitch: 1.0,
         volume: 1.0,
-        category: 'playback',
       })
     } catch {
-      // Fallback to Web Speech API
       try {
-        window.speechSynthesis.cancel()
+        window.speechSynthesis?.cancel()
         const utterance = new SpeechSynthesisUtterance(text)
         utterance.rate = 0.95
         utterance.volume = 1.0
@@ -128,16 +134,39 @@ export default function PunchingMode({ run, onExit }) {
 
   async function startForegroundService(runName) {
     try {
+      await ForegroundService.requestPermissions()
+      // Default importance (3) required for lock screen visibility — same as Google Maps.
+      // The silent:true flag on each notification suppresses the sound without
+      // affecting whether the notification is visible on the lock screen.
+      await ForegroundService.createNotificationChannel({
+        id: 'pipemaster_punching',
+        name: 'Punching Mode',
+        description: 'Shows your current hole size while punching',
+        importance: 3,
+      })
       await ForegroundService.startForegroundService({
         title: 'Punching Mode Active',
         body: runName,
         id: 1001,
-        smallIcon: 'ic_launcher_foreground',
+        smallIcon: 'ic_stat_notify',
         notificationChannelId: 'pipemaster_punching',
-        notificationChannelName: 'Punching Mode',
         serviceType: ServiceType.Location,
+        silent: true,
       })
     } catch { /* not Android or permission denied */ }
+  }
+
+  async function updateForegroundNotification(holeSize, runName) {
+    try {
+      await ForegroundService.updateForegroundService({
+        title: holeSize === 'Supply' ? 'Supply Line — no holes' : `${holeSize} holes`,
+        body: runName,
+        id: 1001,
+        smallIcon: 'ic_stat_notify',
+        notificationChannelId: 'pipemaster_punching',
+        silent: true,
+      })
+    } catch { /* service not running */ }
   }
 
   async function stopForegroundService() {
@@ -182,7 +211,16 @@ export default function PunchingMode({ run, onExit }) {
         gearConfirmed,
       }))
     } catch { /* storage quota exceeded — degrade silently */ }
-  }, [run.id, selectedPattern, selectedLine])
+  }, [run.id, selectedPattern, selectedLine, gearConfirmed])
+
+  // Start (or restore) foreground service the moment gearConfirmed goes true.
+  // Also re-starts it if the process was killed while locked and restores from localStorage.
+  // Cleanup on unmount dismisses the notification when the user exits.
+  useEffect(() => {
+    if (!gearConfirmed) return
+    startForegroundService(run.name)
+    return () => stopForegroundService()
+  }, [gearConfirmed, run.name]) // eslint-disable-line
 
   function handleExit() {
     try { localStorage.removeItem('pipemaster-punching') } catch { }
@@ -229,9 +267,11 @@ export default function PunchingMode({ run, onExit }) {
           if (lastHoleSizeRef.current !== null) {
             navigator.vibrate?.([200, 100, 200, 100, 200])
             playChime()
-            speakHoleSize(seg.holeSize).catch(() => {})
+            speakHoleSize(seg.holeSize, selectedPattern).catch(() => {})
           }
           lastHoleSizeRef.current = seg.holeSize
+          // Keep the lock-screen notification in sync with current hole size
+          updateForegroundNotification(seg.holeSize, run.name)
         }
       },
       (err) => setGpsError(err.message),
@@ -314,11 +354,15 @@ export default function PunchingMode({ run, onExit }) {
               </div>
             ))}
           </div>
-          <button onClick={() => { startForegroundService(run.name); setGearConfirmed(true) }}
+          <button onClick={() => setGearConfirmed(true)}
                   className="w-full max-w-xs py-4 rounded-2xl font-bold text-white text-base active:scale-95 transition-all mt-2"
                   style={{ background: 'linear-gradient(135deg, #f97316, #dc2626)' }}>
             Start punching →
           </button>
+          <div className="text-gray-600 text-xs text-center max-w-xs leading-relaxed">
+            If voice stops when screen locks, go to{' '}
+            <span className="text-gray-500">Settings → Battery → App battery usage → Pipemaster → Unrestricted</span>
+          </div>
         </div>
       </div>
     )
@@ -329,10 +373,10 @@ export default function PunchingMode({ run, onExit }) {
 
       {/* Top 2/3 — live map */}
       <div style={{ flex: 2, position: 'relative', minHeight: 0 }}>
-        <MapContainer center={position ?? run.path[0]} zoom={18} zoomControl={false}
+        <MapContainer center={position ?? run.path?.[0] ?? [33.0, -90.0]} zoom={18} zoomControl={false}
                       style={{ height: '100%', width: '100%' }}>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={22} />
-          <Polyline positions={run.path} pathOptions={{ color: '#94a3b8', weight: 4, opacity: 0.75 }} />
+          <Polyline positions={run.path ?? []} pathOptions={{ color: '#94a3b8', weight: 4, opacity: 0.75 }} />
           {position && (
             <>
               <Circle center={position} radius={accuracy ?? 0}

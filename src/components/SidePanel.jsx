@@ -49,6 +49,9 @@ function RunWithTees({ run, onAddRunFromTee, onOpenRunLog, onEditRun, onDeleteTe
           <span className="text-orange-400 text-sm flex-shrink-0">→</span>
           <span className="text-gray-300 text-sm truncate">{run.name}</span>
         </button>
+        {run.linkedRunId && (
+          <span className="text-blue-400 text-xs flex-shrink-0" title="Linked run — waters simultaneously">⛓</span>
+        )}
         <button
           onClick={() => onEditRun(run)}
           className="text-gray-500 hover:text-blue-400 active:text-blue-300 text-base transition-all px-2 py-1 flex-shrink-0">
@@ -65,7 +68,7 @@ function RunWithTees({ run, onAddRunFromTee, onOpenRunLog, onEditRun, onDeleteTe
 // ── Riser row with its runs ───────────────────────────────────────────────────
 function RiserRow({ riser, well, onDeleteRiser, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun, onDeleteTee }) {
   const runs = useLiveQuery(
-    () => db.runs.where('riserId').equals(riser.id).toArray(),
+    () => db.runs.where('riserId').equals(riser.id).filter(r => !r.teeId).toArray(),
     [riser.id]
   )
 
@@ -147,12 +150,14 @@ function FieldInlineRows({ field, onDeleteRiser, onAddRiserToField, onAddRun, on
 function FieldDetail({ field, onBack, onEditBoundary, onAddRiserToField, onDeleteRiser, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun, onDeleteTee }) {
   const fieldRisers = useLiveQuery(() => db.risers.where('fieldId').equals(field.id).toArray(), [field.id])
   const allWells    = useLiveQuery(() => db.wells.toArray(), [])
+  const [cropOpen, setCropOpen] = useState(false)
 
   const wellById = {}
   allWells?.forEach(w => { wellById[w.id] = w })
 
   async function handleCropChange(crop) {
     await db.fields.update(field.id, { crop, color: cropColor(crop) })
+    setCropOpen(false)
   }
 
   async function handleDeleteField() {
@@ -190,30 +195,41 @@ function FieldDetail({ field, onBack, onEditBoundary, onAddRiserToField, onDelet
 
       <div className="flex-1 overflow-y-auto">
 
-        <div className="px-4 py-4" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-          <div className="text-xs text-gray-500 uppercase tracking-wider mb-3">Crop</div>
-          <div className="flex flex-wrap gap-2">
-            {CROPS.map(c => {
-              const col = cropColor(c)
-              const selected = field.crop === c
-              return (
-                <button
-                  key={c}
-                  onClick={() => handleCropChange(c)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition-all"
-                  style={{
-                    borderColor: selected ? col : 'rgba(255,255,255,0.1)',
-                    background:  selected ? `${col}25` : 'transparent',
-                    color:       selected ? col : '#9ca3af',
-                    fontWeight:  selected ? 600 : 400,
-                  }}
-                >
-                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: col }} />
-                  {c}
-                </button>
-              )
-            })}
-          </div>
+        <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+          <button
+            onClick={() => setCropOpen(o => !o)}
+            className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-white/10 hover:border-white/20 transition-all"
+            style={{ background: '#0f1923' }}>
+            <div className="flex items-center gap-2">
+              <span className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ background: cropColor(field.crop || 'Other') }} />
+              <span className="text-gray-200 text-sm">{field.crop || 'Select crop type'}</span>
+            </div>
+            <span className="text-gray-500 text-xs">{cropOpen ? '▲' : '▼'}</span>
+          </button>
+          {cropOpen && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {CROPS.map(c => {
+                const col = cropColor(c)
+                const selected = field.crop === c
+                return (
+                  <button
+                    key={c}
+                    onClick={() => handleCropChange(c)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition-all"
+                    style={{
+                      borderColor: selected ? col : 'rgba(255,255,255,0.1)',
+                      background:  selected ? `${col}25` : 'transparent',
+                      color:       selected ? col : '#9ca3af',
+                      fontWeight:  selected ? 600 : 400,
+                    }}>
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: col }} />
+                    {c}
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>

@@ -135,6 +135,12 @@ db.version(11).stores({
   flags: '++id, farmId, lat, lon, title, createdAt',
 })
 
+// v12 — linkedRunId: optional pairing so two runs (e.g. north + south) can be
+// marked as watered simultaneously from the same riser opening
+db.version(12).stores({
+  runs: '++id, fieldId, riserId, wellId, teeId, linkedRunId, furrowPattern, name, status, startTime, endTime, gpmReading, gallons',
+})
+
 // Fires a window event on every successful write to any table, regardless of
 // which component made it — lets the auto-sync engine debounce-push to the
 // cloud without every db.X.add/update/delete call site needing to know about sync.

@@ -326,7 +326,8 @@ export default function MapHome({ onSwitchToFieldMode }) {
     if (!parentRun?.path?.length) return
     const pos = getPointAtFt(parentRun.path, tee.atFt)
     if (!pos) return
-    setActiveTeeMarker({ id: tee.id, lat: pos[0], lon: pos[1], fieldId: tee.fieldId })
+    // Inherit riserId from parent run so the child run stays in the same riser context
+    setActiveTeeMarker({ id: tee.id, lat: pos[0], lon: pos[1], fieldId: tee.fieldId, riserId: parentRun.riserId ?? null })
     setActiveRiserForRun(null)
     setPendingRunPath(null)
     setMarkedSegsResult(null)
@@ -887,7 +888,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
           <div style={(drawingForRun || markingHoles) ? { display: 'none' } : {}}>
             <SaveRunSheet
               path={pendingRunPath}
-              riserId={activeRiserForRun?.id ?? null}
+              riserId={activeRiserForRun?.id ?? activeTeeMarker?.riserId ?? null}
               fieldId={activeRiserForRun?.fieldId ?? activeTeeMarker?.fieldId}
               farmId={activeRiserForRun?.farmId ?? null}
               teeId={activeTeeMarker?.id ?? null}
