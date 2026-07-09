@@ -275,12 +275,16 @@ export default function PunchingMode({ run, onExit }) {
         setCurrentSeg(seg)
         if (seg && seg.holeSize !== lastHoleSizeRef.current) {
           if (lastHoleSizeRef.current !== null) {
-            navigator.vibrate?.([200, 100, 200, 100, 200])
-            playChime()
-            speakHoleSize(seg.holeSize, selectedPattern).catch(() => {})
+            // Only use JS audio/vibration when the screen is on — the native foreground
+            // service handles TTS and vibration when the screen is locked.
+            if (document.visibilityState === 'visible') {
+              navigator.vibrate?.([200, 100, 200, 100, 200])
+              playChime()
+              speakHoleSize(seg.holeSize, selectedPattern).catch(() => {})
+            }
           }
           lastHoleSizeRef.current = seg.holeSize
-          // Keep the lock-screen notification in sync with current hole size
+          // Update lock-screen notification; native service speaks + vibrates if screen is off
           updateForegroundNotification(seg.holeSize, run.name)
         }
       },
