@@ -261,7 +261,7 @@ export default function AuthGate({ children }) {
 
     setFarm(undefined)
     const maybeWipe = prevUserId && currUserId && prevUserId !== currUserId
-      ? clearAllTablesData()
+      ? clearAllTablesData().then(() => localStorage.removeItem('pipemaster-last-write-at'))
       : Promise.resolve()
 
     const isOAuth = session.user?.app_metadata?.provider !== 'email'

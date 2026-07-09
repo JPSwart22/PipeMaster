@@ -3,13 +3,21 @@ import BottomSheet from './BottomSheet'
 import FeedbackSheet from './FeedbackSheet'
 import { getMyFarm } from '../lib/farms'
 import { getFarmMembers } from '../lib/members'
-import { getSyncStatus, onSyncStatusChange, forceSync, getSavedFarmCode } from '../lib/cloudSync'
+import { getSyncStatus, onSyncStatusChange, forceSync, getSavedFarmCode, listSnapshots, restoreSnapshot } from '../lib/cloudSync'
 import { downloadBackup, restoreBackup } from '../lib/backup'
 import { signOut } from '../lib/auth'
 import { timeAgo } from '../lib/format'
 
 const STATUS_COLOR = { idle: '#6b7280', syncing: '#eab308', synced: '#22c55e', error: '#ef4444' }
 const STATUS_LABEL = { idle: 'Not synced yet', syncing: 'Syncing…', synced: 'Synced', error: 'Sync error' }
+
+function fmtSnapshotDate(iso) {
+  const d = new Date(iso)
+  const isToday = d.toDateString() === new Date().toDateString()
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (isToday) return `Today · ${time}`
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' · ' + time
+}
 
 export function SyncStatusDot() {
   const [status, setStatus] = useState(getSyncStatus())
@@ -39,10 +47,13 @@ export default function SettingsSheet({ onClose }) {
   const [members, setMembers] = useState(undefined)
   const [status, setStatus] = useState(getSyncStatus())
   const [copied, setCopied] = useState(false)
-  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [showFeedback, setShowFeedback] = useState(false)
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false)
+  const [snapshots, setSnapshots] = useState(null)
+  const [snapshotsLoading, setSnapshotsLoading] = useState(false)
+  const [restoringId, setRestoringId] = useState(null)
 
   useEffect(() => onSyncStatusChange(setStatus), [])
 
@@ -82,6 +93,41 @@ export default function SettingsSheet({ onClose }) {
     if (!file) return
     if (!confirm('This replaces ALL data on this device with the backup file. Continue?')) return
     await restoreBackup(file)
+  }
+
+  async function loadSnapshots() {
+    const code = farm?.code ?? getSavedFarmCode()
+    if (!code) return
+    setSnapshotsLoading(true)
+    try {
+      setSnapshots(await listSnapshots(code))
+    } catch {
+      setSnapshots([])
+    } finally {
+      setSnapshotsLoading(false)
+    }
+  }
+
+  function handleToggleSnapshots() {
+    const opening = !snapshotsOpen
+    setSnapshotsOpen(opening)
+    if (opening && snapshots === null) loadSnapshots()
+  }
+
+  async function handleRestoreSnapshot(snapshotId) {
+    if (!confirm('Restore this version? Your current data will be replaced on all devices.')) return
+    const code = farm?.code ?? getSavedFarmCode()
+    if (!code) return
+    setRestoringId(snapshotId)
+    setError(null)
+    try {
+      await restoreSnapshot(code, snapshotId)
+      loadSnapshots()
+    } catch (err) {
+      setError(`Restore failed: ${err.message}`)
+    } finally {
+      setRestoringId(null)
+    }
   }
 
   return (
@@ -149,25 +195,51 @@ export default function SettingsSheet({ onClose }) {
           </div>
         </div>
 
-        {/* Advanced */}
+        {/* Data Safety */}
         <div>
-          <button onClick={() => setAdvancedOpen(o => !o)}
-                  className="w-full flex items-center justify-between text-xs text-gray-500 hover:text-gray-300 py-1 transition-colors">
-            <span>Advanced</span>
-            <span>{advancedOpen ? '▲' : '▼'}</span>
+          <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Data Safety</div>
+          <div className="flex gap-2 mb-2">
+            <button onClick={downloadBackup}
+                    className="flex-1 py-2.5 rounded-xl text-xs font-medium text-gray-300 hover:text-white border border-white/10 hover:border-white/25 transition-all">
+              ⬇ Export backup
+            </button>
+            <label className="flex-1 py-2.5 rounded-xl text-xs font-medium text-gray-300 hover:text-white border border-white/10 hover:border-white/25 transition-all text-center cursor-pointer">
+              ⬆ Import backup
+              <input type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
+            </label>
+          </div>
+          <button onClick={handleToggleSnapshots}
+                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-white/08 hover:border-white/15 transition-all"
+                  style={{ background: 'rgba(255,255,255,0.02)' }}>
+            <div className="flex items-center gap-2">
+              <span className="text-gray-400 text-sm">⏱</span>
+              <span className="text-gray-300 text-xs">Cloud restore points</span>
+            </div>
+            <span className="text-gray-600 text-xs">{snapshotsOpen ? '▲' : '▼'}</span>
           </button>
-          {advancedOpen && (
-            <div className="flex gap-2 mt-2">
-              <button onClick={downloadBackup}
-                      className="flex-1 py-2 rounded-lg text-xs text-gray-400 hover:text-white border border-white/10 hover:border-white/25 transition-all">
-                ⬇ Export backup
-              </button>
-              <label className="flex-1 py-2 rounded-lg text-xs text-gray-400 hover:text-white border border-white/10 hover:border-white/25 transition-all text-center cursor-pointer">
-                ⬆ Import backup
-                <input type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
-              </label>
+          {snapshotsOpen && (
+            <div className="mt-1.5 rounded-xl overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+              {snapshotsLoading && (
+                <div className="px-4 py-3 text-xs text-gray-600">Loading…</div>
+              )}
+              {!snapshotsLoading && snapshots?.length === 0 && (
+                <div className="px-4 py-3 text-xs text-gray-600">No restore points yet — they appear automatically after your next sync</div>
+              )}
+              {snapshots?.map((snap, i) => (
+                <div key={snap.id} className="flex items-center justify-between px-4 py-3"
+                     style={{ borderBottom: i < snapshots.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                  <span className="text-xs text-gray-300">{fmtSnapshotDate(snap.saved_at)}</span>
+                  <button
+                    onClick={() => handleRestoreSnapshot(snap.id)}
+                    disabled={restoringId === snap.id}
+                    className="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-40 transition-colors px-2 py-1 rounded border border-blue-900/40 hover:border-blue-700/40">
+                    {restoringId === snap.id ? 'Restoring…' : 'Restore'}
+                  </button>
+                </div>
+              ))}
             </div>
           )}
+          {error && <div className="text-red-400 text-xs mt-1.5">{error}</div>}
         </div>
 
         <button

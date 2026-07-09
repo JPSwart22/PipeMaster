@@ -53,10 +53,15 @@ export function onSyncStatusChange(fn) {
 // ── Manual push/pull — still exposed for an explicit "force sync" action ───
 export async function pushToCloud(code) {
   const tables = await getAllTablesData()
+  // Safety guard: never overwrite cloud with an empty local state.
+  // This prevents a wipe cascade if local data is cleared before startup sync runs.
+  const totalItems = Object.values(tables).reduce((sum, arr) => sum + (arr?.length ?? 0), 0)
+  if (totalItems === 0) return
   const { error } = await supabase
     .from('farm_sync')
     .upsert({ code: code.toUpperCase(), data: tables, updated_at: new Date().toISOString() }, { onConflict: 'code' })
   if (error) throw error
+  lastPushAt = Date.now() // track here so any push path sets the echo guard
 }
 
 export async function pullFromCloud(code) {
@@ -71,13 +76,38 @@ export async function pullFromCloud(code) {
   return data.updated_at
 }
 
+// Returns last 5 auto-saved versions (saved by DB trigger before each push overwrites)
+export async function listSnapshots(code) {
+  const { data, error } = await supabase
+    .from('farm_sync_history')
+    .select('id, saved_at')
+    .eq('farm_code', code.toUpperCase())
+    .order('saved_at', { ascending: false })
+    .limit(5)
+  if (error) throw error
+  return data ?? []
+}
+
+// Restores a snapshot locally and pushes it to cloud so all devices sync
+export async function restoreSnapshot(code, snapshotId) {
+  const { data: row, error } = await supabase
+    .from('farm_sync_history')
+    .select('data')
+    .eq('id', snapshotId)
+    .eq('farm_code', code.toUpperCase())
+    .single()
+  if (error) throw error
+  await restoreAllTablesData(row.data)
+  localStorage.setItem(LAST_WRITE_KEY, Date.now().toString())
+  await forceSync(code)
+}
+
 let lastPushAt = 0
 
 export async function forceSync(code) {
   setSyncStatus({ state: 'syncing' })
   try {
     await pushToCloud(code)
-    lastPushAt = Date.now()
     setSyncStatus({ state: 'synced', lastSyncedAt: new Date(), error: null })
   } catch (err) {
     setSyncStatus({ state: 'error', error: err.message })
@@ -98,7 +128,6 @@ async function startupSync(code) {
   if (!meta) {
     // Nothing in cloud yet — push local data up
     await pushToCloud(code)
-    lastPushAt = Date.now()
     return
   }
 
@@ -108,7 +137,6 @@ async function startupSync(code) {
   if (lastLocalWrite > cloudTs) {
     // Local has newer changes that haven't reached the cloud — push
     await pushToCloud(code)
-    lastPushAt = Date.now()
   } else {
     // Cloud is newer (or equal) — safe to pull
     await pullFromCloud(code)
