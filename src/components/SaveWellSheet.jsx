@@ -1,14 +1,35 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import BottomSheet from './BottomSheet'
 import db from '../lib/db'
 
+function distSq(lat1, lon1, lat2, lon2) {
+  return (lat1 - lat2) ** 2 + (lon1 - lon2) ** 2
+}
+
 export default function SaveWellSheet({ farmId: initialFarmId, lat, lon, onClose, onSaved }) {
   const farms   = useLiveQuery(() => db.farms.toArray(), [])
+  const fields  = useLiveQuery(() => db.fields.toArray(), [])
   const [farmId, setFarmId] = useState(initialFarmId ?? null)
   const [name, setName]     = useState('')
   const [type, setType]     = useState('')
   const [saving, setSaving] = useState(false)
+
+  // Auto-select the farm whose fields are nearest to the well's GPS position
+  useEffect(() => {
+    if (initialFarmId || !lat || !lon || !farms?.length || !fields?.length) return
+    let nearestFarmId = null
+    let nearestDist = Infinity
+    for (const field of fields) {
+      const pts = field.boundary
+      if (!pts?.length) continue
+      const cLat = pts.reduce((s, p) => s + p[0], 0) / pts.length
+      const cLon = pts.reduce((s, p) => s + p[1], 0) / pts.length
+      const d = distSq(lat, lon, cLat, cLon)
+      if (d < nearestDist) { nearestDist = d; nearestFarmId = field.farmId }
+    }
+    if (nearestFarmId) setFarmId(nearestFarmId)
+  }, [farms, fields, lat, lon, initialFarmId])
 
   async function handleSave() {
     if (!name.trim() || !type || !farmId) return

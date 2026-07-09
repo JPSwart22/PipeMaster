@@ -107,6 +107,7 @@ export default function PunchingMode({ run, onExit }) {
   const [currentSeg, setCurrentSeg] = useState(null)
   const [currentFt, setCurrentFt] = useState(null)
   const [gpsError, setGpsError] = useState(null)
+  const [showBatteryPrompt, setShowBatteryPrompt] = useState(false)
   const lastHoleSizeRef = useRef(null)
   const audioCtxRef = useRef(null)
 
@@ -219,6 +220,15 @@ export default function PunchingMode({ run, onExit }) {
   useEffect(() => {
     if (!gearConfirmed) return
     startForegroundService(run.name)
+    // One-time check: if Samsung battery optimizer hasn't been asked to exempt us, prompt the user
+    if (!localStorage.getItem('pipemaster-battery-checked')) {
+      ForegroundService.isIgnoringBatteryOptimizations()
+        .then(({ isIgnoring }) => {
+          localStorage.setItem('pipemaster-battery-checked', '1')
+          if (!isIgnoring) setShowBatteryPrompt(true)
+        })
+        .catch(() => {})
+    }
     return () => stopForegroundService()
   }, [gearConfirmed, run.name]) // eslint-disable-line
 
@@ -369,6 +379,7 @@ export default function PunchingMode({ run, onExit }) {
   }
 
   return (
+    <>
     <div className="fixed inset-0 z-[3000] flex flex-col" style={{ background: '#0f1923' }}>
 
       {/* Top 2/3 — live map */}
@@ -432,5 +443,33 @@ export default function PunchingMode({ run, onExit }) {
         )}
       </div>
     </div>
+
+    {/* Battery optimization prompt — shown once if Samsung Device Care isn't exempting us */}
+    {showBatteryPrompt && (
+      <div className="fixed inset-0 z-[4000] flex items-end justify-center p-5"
+           style={{ background: 'rgba(0,0,0,0.7)' }}>
+        <div className="w-full max-w-sm rounded-2xl p-5 flex flex-col gap-3"
+             style={{ background: '#1a2535', border: '1px solid rgba(255,165,0,0.3)' }}>
+          <div className="text-white font-semibold">Samsung may pause Pipemaster</div>
+          <div className="text-sm text-gray-400">
+            Samsung's battery optimizer can stop GPS and voice alerts while you work. Tap Fix to exempt Pipemaster — you'll see a system prompt.
+          </div>
+          <div className="flex gap-2 mt-1">
+            <button onClick={() => setShowBatteryPrompt(false)}
+                    className="flex-1 py-2.5 rounded-xl text-sm text-gray-400 border border-white/10">
+              Later
+            </button>
+            <button onClick={() => {
+              ForegroundService.requestIgnoreBatteryOptimization().catch(() => {})
+              setShowBatteryPrompt(false)
+            }}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-green-500">
+              Fix it
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }
