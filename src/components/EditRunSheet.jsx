@@ -298,7 +298,7 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
                   importing ? 'text-gray-500 border-white/10 cursor-not-allowed' : 'border-blue-500/40 text-blue-400 cursor-pointer hover:bg-blue-500/10'
                 }`}>
                   {importing ? '⏳' : '📷'} Snap schematic
-                  <input type="file" accept="image/*" capture="environment" className="hidden" disabled={importing} onChange={handleImport} />
+                  <input type="file" accept="image/*" className="hidden" disabled={importing} onChange={handleImport} />
                 </label>
                 <label className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border text-sm font-medium transition-all ${
                   importing ? 'text-gray-500 border-white/10 cursor-not-allowed' : 'border-blue-500/40 text-blue-400 cursor-pointer hover:bg-blue-500/10'
@@ -350,18 +350,20 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
                       </button>
                     </div>
                   )}
-                  <button
-                    onClick={() => onMarkHolesRequest(path, i)}
-                    disabled={!path?.length}
-                    className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-green-500/40 text-green-400 text-sm font-medium hover:bg-green-500/10 active:bg-green-500/20 disabled:opacity-30 transition-all">
-                    📍 Mark hole sizes on map
-                  </button>
-                  <button
-                    onClick={() => onRangeEditRequest(path, i)}
-                    disabled={!path?.length}
-                    className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-orange-500/40 text-orange-400 text-sm font-medium hover:bg-orange-500/10 active:bg-orange-500/20 disabled:opacity-30 transition-all">
-                    ✏️ Edit range on map
-                  </button>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => onMarkHolesRequest(path, i)}
+                      disabled={!path?.length}
+                      className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl border border-green-500/40 text-green-400 text-xs font-medium hover:bg-green-500/10 active:bg-green-500/20 disabled:opacity-30 transition-all">
+                      📍 Mark holes
+                    </button>
+                    <button
+                      onClick={() => onRangeEditRequest(path, i)}
+                      disabled={!path?.length}
+                      className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl border border-orange-500/40 text-orange-400 text-xs font-medium hover:bg-orange-500/10 active:bg-orange-500/20 disabled:opacity-30 transition-all">
+                      ✏️ Edit range
+                    </button>
+                  </div>
                   <SegmentTable segs={line.segs} setSegs={(u) => setLineSegs(i, u)} totalFt={totalFt} />
                 </div>
               ))}

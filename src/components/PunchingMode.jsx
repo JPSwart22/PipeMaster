@@ -136,9 +136,9 @@ export default function PunchingMode({ run, onExit }) {
   async function startForegroundService(runName) {
     try {
       await ForegroundService.requestPermissions()
-      // Default importance (3) required for lock screen visibility — same as Google Maps.
-      // The silent:true flag on each notification suppresses the sound without
-      // affecting whether the notification is visible on the lock screen.
+      // Delete before recreate — Android ignores createNotificationChannel for existing channels,
+      // so VISIBILITY_PUBLIC would never apply unless we force a fresh creation each time.
+      await ForegroundService.deleteNotificationChannel({ id: 'pipemaster_punching' }).catch(() => {})
       await ForegroundService.createNotificationChannel({
         id: 'pipemaster_punching',
         name: 'Punching Mode',

@@ -15,20 +15,25 @@ export default function SaveWellSheet({ farmId: initialFarmId, lat, lon, onClose
   const [type, setType]     = useState('')
   const [saving, setSaving] = useState(false)
 
-  // Auto-select the farm whose fields are nearest to the well's GPS position
+  // Auto-select the nearest farm when opening from the FAB (no initialFarmId)
   useEffect(() => {
-    if (initialFarmId || !lat || !lon || !farms?.length || !fields?.length) return
-    let nearestFarmId = null
-    let nearestDist = Infinity
-    for (const field of fields) {
-      const pts = field.boundary
-      if (!pts?.length) continue
-      const cLat = pts.reduce((s, p) => s + p[0], 0) / pts.length
-      const cLon = pts.reduce((s, p) => s + p[1], 0) / pts.length
-      const d = distSq(lat, lon, cLat, cLon)
-      if (d < nearestDist) { nearestDist = d; nearestFarmId = field.farmId }
+    if (initialFarmId || !lat || !lon || !farms?.length) return
+    // Single farm → always pick it
+    if (farms.length === 1) { setFarmId(farms[0].id); return }
+    // Multiple farms: find nearest by distance to field boundary centroids
+    if (fields?.length) {
+      let nearestFarmId = null
+      let nearestDist = Infinity
+      for (const field of fields) {
+        const pts = field.boundary
+        if (!pts?.length) continue
+        const cLat = pts.reduce((s, p) => s + p[0], 0) / pts.length
+        const cLon = pts.reduce((s, p) => s + p[1], 0) / pts.length
+        const d = distSq(lat, lon, cLat, cLon)
+        if (d < nearestDist) { nearestDist = d; nearestFarmId = field.farmId }
+      }
+      if (nearestFarmId) setFarmId(nearestFarmId)
     }
-    if (nearestFarmId) setFarmId(nearestFarmId)
   }, [farms, fields, lat, lon, initialFarmId])
 
   async function handleSave() {

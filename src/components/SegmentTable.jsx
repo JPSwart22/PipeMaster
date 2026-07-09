@@ -4,48 +4,52 @@ import { HOLE_SIZES, HOLE_COLOR } from '../lib/pipeUtils'
 function SegRow({ seg, index, prevEndFt, onChange, onRemove }) {
   const color = HOLE_COLOR[seg.holeSize] ?? '#64748b'
   return (
-    <div className="flex items-center gap-2 px-3 py-3"
-         style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+    <div className="px-3 py-2.5" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
 
-      {/* Hole size */}
-      <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: color }} />
-      <select
-        value={seg.holeSize}
-        onChange={e => onChange(index, 'holeSize', e.target.value)}
-        className="text-sm text-white border-0 outline-none bg-transparent flex-shrink-0 cursor-pointer"
-        style={{ minWidth: 58 }}>
-        {HOLE_SIZES.map(s => <option key={s} value={s} style={{ background: '#0f1923' }}>{s}</option>)}
-      </select>
+      {/* Line 1: hole size · distance · delete */}
+      <div className="flex items-center gap-2">
+        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: color }} />
+        <select
+          value={seg.holeSize}
+          onChange={e => onChange(index, 'holeSize', e.target.value)}
+          className="text-sm text-white border-0 outline-none bg-transparent flex-shrink-0 cursor-pointer"
+          style={{ minWidth: 56 }}>
+          {HOLE_SIZES.map(s => <option key={s} value={s} style={{ background: '#0f1923' }}>{s}</option>)}
+        </select>
+        <span className="flex-1" />
+        <span className="text-gray-600 text-xs flex-shrink-0 tabular-nums">{prevEndFt}–</span>
+        <input
+          type="number"
+          value={seg.endFt || ''}
+          onChange={e => onChange(index, 'endFt', parseInt(e.target.value) || 0)}
+          className="w-14 text-sm text-white text-right bg-transparent border-b border-white/15 outline-none tabular-nums"
+          style={{ appearance: 'textfield', MozAppearance: 'textfield' }}
+          placeholder="ft"
+        />
+        <span className="text-gray-600 text-xs flex-shrink-0">ft</span>
+        <button
+          onClick={() => onRemove(index)}
+          className="text-red-700 hover:text-red-400 text-lg leading-none flex-shrink-0 ml-1 px-1 transition-colors">
+          ×
+        </button>
+      </div>
 
-      {/* Distance */}
-      <span className="text-gray-600 text-xs flex-shrink-0 tabular-nums">{prevEndFt}–</span>
-      <input
-        type="number"
-        value={seg.endFt || ''}
-        onChange={e => onChange(index, 'endFt', parseInt(e.target.value) || 0)}
-        className="w-16 text-sm text-white text-right bg-transparent border-b border-white/15 outline-none tabular-nums"
-        style={{ appearance: 'textfield', MozAppearance: 'textfield' }}
-        placeholder="ft"
-      />
-      <span className="text-gray-600 text-xs flex-shrink-0">ft</span>
-
-      {/* Furrow count */}
-      {seg.holeSize !== 'Supply' ? (
-        <>
-          <span className="text-gray-700 text-xs flex-shrink-0 ml-1">|</span>
+      {/* Line 2: furrow count + pattern (non-Supply segments only) */}
+      {seg.holeSize !== 'Supply' && (
+        <div className="flex items-center gap-1.5 mt-1.5 pl-5">
           <input
             type="number"
             value={seg.furrowCount || ''}
             onChange={e => onChange(index, 'furrowCount', parseInt(e.target.value) || null)}
-            className="w-12 text-sm text-white text-right bg-transparent border-b border-white/15 outline-none tabular-nums"
+            className="w-10 text-xs text-gray-300 text-right bg-transparent border-b border-white/10 outline-none tabular-nums"
             style={{ appearance: 'textfield', MozAppearance: 'textfield' }}
             placeholder="0"
           />
-          <span className="text-gray-500 text-xs flex-shrink-0">fur</span>
+          <span className="text-gray-600 text-xs">fur</span>
           <button
             onClick={() => onChange(index, 'furrowPattern',
               seg.furrowPattern === 'every' ? 'alternate' : seg.furrowPattern === 'alternate' ? null : 'every')}
-            className="text-xs flex-shrink-0 px-1.5 py-0.5 rounded transition-colors ml-1"
+            className="text-xs px-1.5 py-0.5 rounded ml-1 transition-colors"
             style={{
               color: seg.furrowPattern ? '#4ade80' : '#4b5563',
               border: `1px solid ${seg.furrowPattern ? 'rgba(74,222,128,0.4)' : 'rgba(255,255,255,0.1)'}`,
@@ -53,16 +57,8 @@ function SegRow({ seg, index, prevEndFt, onChange, onRemove }) {
             title="Tap to cycle: every furrow / every other / unset">
             {seg.furrowPattern === 'alternate' ? 'alt' : seg.furrowPattern === 'every' ? 'ea' : '–'}
           </button>
-        </>
-      ) : (
-        <span className="flex-1" />
+        </div>
       )}
-
-      <button
-        onClick={() => onRemove(index)}
-        className="text-red-800 hover:text-red-500 text-base leading-none ml-auto flex-shrink-0 px-1 transition-colors">
-        ×
-      </button>
     </div>
   )
 }

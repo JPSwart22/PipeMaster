@@ -905,6 +905,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
         {sheet === 'editRun' && editingRun && (
           <div style={(drawingForEditRun || placingTeeForRun || markingHoles || rangeEditSession) ? { display: 'none' } : {}}>
             <EditRunSheet
+              key={editingRun.id}
               run={editingRun}
               drawnPath={pendingEditPath}
               onDrawRequest={handleEditRunDrawRequest}
