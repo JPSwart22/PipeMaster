@@ -49,7 +49,7 @@ Include "pathWaypoints": [[lat, lon], ...] in your response — start with the r
           : { type: 'image',    source: { type: 'base64', media_type: mediaType,          data: imageBase64 } },
         {
           type: 'text',
-          text: `This is a Delta Plastics Pipe Planner sheet for polypipe irrigation in the Mississippi Delta.
+          text: `This is a polypipe irrigation schematic — it may be a printed planning sheet, a handwritten field diagram, or a photo of either.
 
 Extract every pipe run and all its segments. Return ONLY a raw JSON object — no markdown, no code fences, no explanation.
 
@@ -61,7 +61,7 @@ Extract every pipe run and all its segments. Return ONLY a raw JSON object — n
   "pathWaypoints": [[lat, lon], ...] or null,
   "runs": [
     {
-      "name": "run name e.g. Inline Tee Left, Inline Tee Right, Main Run",
+      "name": "run name e.g. Inline Tee Left, Inline Tee Right, Main Run, North, South",
       "furrowPattern": "every" or "alternate" or null,
       "segments": [
         {
@@ -75,14 +75,16 @@ Extract every pipe run and all its segments. Return ONLY a raw JSON object — n
   ]
 }
 
-Important:
+Rules:
 - Each segment is one row in the table (one hole size, one distance range)
-- Supply sections with no hole size should be omitted
-- holeSize must be exactly as printed e.g. "5/8\\"", "9/16\\"", "1/2\\""
-- startFt and endFt are the distance range from the table
-- furrowCount is required — read it from the Furrow Count column, never omit or set to null
-- furrowPattern: look for "every furrow", "all furrows", or similar → "every"; "every other", "alternate", "alternating" → "alternate"; if not stated → null
-- flowRateGPM: read the pump/well flow rate in GPM from the sheet header or notes — this is the total well output, not per-furrow${pathInstruction}`,
+- Omit any segment that is just supply pipe with no punched holes
+- holeSize must match exactly what is printed — common sizes: "5/8\\"", "9/16\\"", "1/2\\"", "7/16\\"", "3/4\\""
+- startFt and endFt are the cumulative distance range (feet from the riser/start)
+- furrowCount: read from the sheet if present; set to null if not shown
+- furrowPattern: "every" for "every furrow" / "all furrows"; "alternate" for "every other" / "alternating"; null if not stated
+- flowRateGPM: total well or pump flow rate in GPM from the header or notes, not per-furrow
+- If multiple runs are shown (e.g. with inline tees), return each as a separate entry in "runs"
+- If you cannot read part of the schematic clearly, make your best attempt rather than refusing${pathInstruction}`,
         },
       ],
     }],

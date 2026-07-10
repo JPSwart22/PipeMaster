@@ -125,7 +125,7 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
         setImportedRuns(result.runs)
       }
     } catch (err) {
-      setImportError('Could not read schematic — try a clearer screenshot.')
+      setImportError(err.message || 'Could not read schematic — try a clearer photo.')
       console.error(err)
     } finally {
       setImporting(false)
