@@ -1,0 +1,260 @@
+diff --git a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
+index 3df5ad5..187be37 100644
+--- a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
++++ b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
+@@ -6,24 +6,75 @@ import android.app.PendingIntent;
+ import android.app.Service;
+ import android.content.Context;
+ import android.content.Intent;
++import android.content.SharedPreferences;
+ import android.os.Build;
+ import android.os.Bundle;
+ import android.os.IBinder;
++import android.os.PowerManager;
++import android.os.VibrationEffect;
++import android.os.Vibrator;
++import android.speech.tts.TextToSpeech;
+ import androidx.annotation.Nullable;
+ import com.getcapacitor.Logger;
+ import java.util.ArrayList;
++import java.util.Locale;
+ 
+ public class AndroidForegroundService extends Service {
+ 
++    private PowerManager.WakeLock wakeLock;
++    private TextToSpeech tts;
++    private volatile boolean ttsReady = false;
++
++    @Override
++    public void onCreate() {
++        super.onCreate();
++        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
++        // PARTIAL_WAKE_LOCK keeps the CPU awake when the screen turns off so the
++        // WebView JS continues running (watchPosition callbacks keep firing).
++        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "pipemaster:punching");
++        wakeLock.setReferenceCounted(false);
++        wakeLock.acquire(7200000L); // 2-hour safety ceiling
++        tts = new TextToSpeech(this, status -> {
++            ttsReady = status == TextToSpeech.SUCCESS;
++            if (ttsReady) tts.setLanguage(Locale.US);
++        });
++    }
++
++    @Override
++    public void onDestroy() {
++        super.onDestroy();
++        if (wakeLock != null && wakeLock.isHeld()) {
++            wakeLock.release();
++        }
++        if (tts != null) {
++            tts.stop();
++            tts.shutdown();
++            tts = null;
++        }
++    }
++
+     @Nullable
+     @Override
+     public IBinder onBind(Intent intent) {
+         return null;
+     }
+ 
++    private static final String PREFS_NAME = "PipemasterForegroundServiceState";
++
+     @Override
+     public int onStartCommand(Intent intent, int flags, int startId) {
++        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+         try {
++            if (intent == null) {
++                // The system killed this sticky service and redelivered onStartCommand with a
++                // null Intent (no extras to read). startForeground() is still required within
++                // a few seconds of this call or the OS kills the app with
++                // ForegroundServiceDidNotStartInTimeException, so rebuild the last known
++                // notification from disk instead of just catching the NPE and returning.
++                restoreForegroundFromPrefs(prefs);
++                return START_STICKY;
++            }
++
+             String action = intent.getAction();
+             Bundle extras = intent.getExtras();
+             String channelId = extras.getString("channelId", ForegroundService.DEFAULT_NOTIFICATION_CHANNEL_ID);
+@@ -36,6 +87,16 @@ public class AndroidForegroundService extends Service {
+             ArrayList<Bundle> buttonsBundle = notificationBundle.getParcelableArrayList("buttons");
+             int serviceType = notificationBundle.getInt("serviceType", 0);
+ 
++            prefs
++                .edit()
++                .putInt("id", id)
++                .putString("channelId", channelId)
++                .putString("title", title)
++                .putString("body", body)
++                .putInt("icon", icon)
++                .putInt("serviceType", serviceType)
++                .apply();
++
+             PendingIntent contentIntent = buildContentIntent(id);
+             Notification.Builder builder;
+             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+@@ -50,6 +111,7 @@ public class AndroidForegroundService extends Service {
+                 .setOngoing(true)
+                 .setSmallIcon(icon)
+                 .setPriority(Notification.PRIORITY_HIGH)
++                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                 .setOnlyAlertOnce(silent);
+             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                 Notification.Action[] actions = convertBundlesToNotificationActions(
+@@ -63,6 +125,14 @@ public class AndroidForegroundService extends Service {
+             if (ForegroundService.ACTION_UPDATE.equals(action)) {
+                 NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                 notificationManager.notify(id, notification);
++                // When screen is off (locked), JS can't vibrate or speak TTS — do it natively.
++                PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
++                if (pm != null && !pm.isInteractive()) {
++                    vibrateHoleChange();
++                    if (ttsReady && tts != null) {
++                        tts.speak(title, TextToSpeech.QUEUE_FLUSH, null, "hole");
++                    }
++                }
+             } else {
+                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && serviceType != 0) {
+                     startForeground(id, notification, serviceType);
+@@ -72,10 +142,60 @@ public class AndroidForegroundService extends Service {
+             }
+         } catch (Exception exception) {
+             Logger.error(ForegroundServicePlugin.TAG, exception.getMessage(), exception);
++            // startForeground() must be called regardless of what failed above, otherwise the
++            // system kills the app with ForegroundServiceDidNotStartInTimeException.
++            restoreForegroundFromPrefs(prefs);
+         }
+         return START_STICKY;
+     }
+ 
++    private void restoreForegroundFromPrefs(SharedPreferences prefs) {
++        try {
++            int id = prefs.getInt("id", 1);
++            String channelId = prefs.getString("channelId", ForegroundService.DEFAULT_NOTIFICATION_CHANNEL_ID);
++            String title = prefs.getString("title", "Pipemaster");
++            String body = prefs.getString("body", "Tracking in progress");
++            int icon = prefs.getInt("icon", android.R.drawable.ic_dialog_info);
++            int serviceType = prefs.getInt("serviceType", 0);
++
++            Notification.Builder builder;
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++                builder = new Notification.Builder(getApplicationContext(), channelId);
++            } else {
++                builder = new Notification.Builder(getApplicationContext());
++            }
++            builder
++                .setContentTitle(title)
++                .setContentText(body)
++                .setContentIntent(buildContentIntent(id))
++                .setOngoing(true)
++                .setSmallIcon(icon)
++                .setPriority(Notification.PRIORITY_HIGH)
++                .setVisibility(Notification.VISIBILITY_PUBLIC);
++            Notification notification = builder.build();
++
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && serviceType != 0) {
++                startForeground(id, notification, serviceType);
++            } else {
++                startForeground(id, notification);
++            }
++        } catch (Exception exception) {
++            Logger.error(ForegroundServicePlugin.TAG, "Failed to restore foreground notification", exception);
++        }
++    }
++
++    @SuppressWarnings("deprecation")
++    private void vibrateHoleChange() {
++        Vibrator v = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
++        if (v == null) return;
++        long[] pattern = {0, 200, 100, 200, 100, 200};
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
++            v.vibrate(VibrationEffect.createWaveform(pattern, -1));
++        } else {
++            v.vibrate(pattern, -1);
++        }
++    }
++
+     private PendingIntent buildContentIntent(int id) {
+         Intent launchIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
+         if (launchIntent == null) {
+diff --git a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServiceHelper.java b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServiceHelper.java
+index 132f897..90af998 100644
+--- a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServiceHelper.java
++++ b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServiceHelper.java
+@@ -1,5 +1,6 @@
+ package io.capawesome.capacitorjs.plugins.foregroundservice;
+ 
++import android.app.Notification;
+ import android.app.NotificationChannel;
+ import android.app.NotificationManager;
+ import android.os.Build;
+@@ -27,6 +28,7 @@ public class ForegroundServiceHelper {
+ 
+         NotificationChannel notificationChannel = new NotificationChannel(id, name, importance);
+         notificationChannel.setDescription(description);
++        notificationChannel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+         return notificationChannel;
+     }
+ }
+diff --git a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServicePlugin.java b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServicePlugin.java
+index aa2c75f..d06460d 100644
+--- a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServicePlugin.java
++++ b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServicePlugin.java
+@@ -2,10 +2,12 @@ package io.capawesome.capacitorjs.plugins.foregroundservice;
+ 
+ import android.Manifest;
+ import android.app.NotificationChannel;
++import android.content.Context;
+ import android.content.Intent;
+ import android.net.Uri;
+ import android.os.Build;
+ import android.os.Bundle;
++import android.os.PowerManager;
+ import android.provider.Settings;
+ import androidx.activity.result.ActivityResult;
+ import com.getcapacitor.Bridge;
+@@ -194,6 +196,42 @@ public class ForegroundServicePlugin extends Plugin {
+         }
+     }
+ 
++    @PluginMethod
++    public void isIgnoringBatteryOptimizations(PluginCall call) {
++        try {
++            boolean isIgnoring = true;
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
++                PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
++                isIgnoring = pm.isIgnoringBatteryOptimizations(getContext().getPackageName());
++            }
++            JSObject result = new JSObject();
++            result.put("isIgnoring", isIgnoring);
++            call.resolve(result);
++        } catch (Exception exception) {
++            call.reject(exception.getMessage());
++            Logger.error(ForegroundServicePlugin.TAG, exception.getMessage(), exception);
++        }
++    }
++
++    @PluginMethod
++    public void requestIgnoreBatteryOptimization(PluginCall call) {
++        try {
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
++                PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
++                if (!pm.isIgnoringBatteryOptimizations(getContext().getPackageName())) {
++                    Intent intent = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
++                        Uri.parse("package:" + getContext().getPackageName()));
++                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
++                    getContext().startActivity(intent);
++                }
++            }
++            call.resolve();
++        } catch (Exception exception) {
++            call.reject(exception.getMessage());
++            Logger.error(ForegroundServicePlugin.TAG, exception.getMessage(), exception);
++        }
++    }
++
+     @PluginMethod
+     public void checkManageOverlayPermission(PluginCall call) {
+         try {
