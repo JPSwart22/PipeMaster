@@ -109,7 +109,18 @@ export default function PunchingMode({ run, onExit }) {
   const [gpsError, setGpsError] = useState(null)
   const [showBatteryPrompt, setShowBatteryPrompt] = useState(false)
   const lastHoleSizeRef = useRef(null)
+  const lastDistanceBucketRef = useRef(null)
   const audioCtxRef = useRef(null)
+  // GPS watch can start (and get a fix) before the foreground service has finished starting —
+  // updateForegroundService() internally calls Context.startForegroundService() too, which arms
+  // Android's "must call startForeground() in time" timer. If that fires before the real start
+  // has created the notification channel and called startForeground(), the app crashes with
+  // ForegroundServiceDidNotStartInTimeException. Gate all updates on the real start completing.
+  const serviceReadyRef = useRef(false)
+  // If a hole-size update arrives before the service finishes starting, remember it here and
+  // flush it once ready — otherwise that segment's notification would be silently lost forever,
+  // since lastHoleSizeRef already records it as "shown" the moment GPS resolves it.
+  const pendingUpdateRef = useRef(null)
 
   async function speakHoleSize(holeSize, pattern) {
     const text = buildVoiceText(holeSize, pattern)
@@ -134,6 +145,7 @@ export default function PunchingMode({ run, onExit }) {
   }
 
   async function startForegroundService(runName) {
+    serviceReadyRef.current = false
     try {
       // AndroidManifest hardcodes foregroundServiceType="location" on this service, so Android
       // requires ACCESS_FINE_LOCATION/COARSE_LOCATION to already be granted before ANY start —
@@ -169,14 +181,25 @@ export default function PunchingMode({ run, onExit }) {
         serviceType: ServiceType.Location,
         silent: true,
       })
+      serviceReadyRef.current = true
+      if (pendingUpdateRef.current) {
+        const pending = pendingUpdateRef.current
+        pendingUpdateRef.current = null
+        updateForegroundNotification(pending.holeSize, pending.distanceFt)
+      }
     } catch { /* not Android or permission denied */ }
   }
 
-  async function updateForegroundNotification(holeSize, runName) {
+  async function updateForegroundNotification(holeSize, distanceFt) {
+    if (!serviceReadyRef.current) {
+      pendingUpdateRef.current = { holeSize, distanceFt }
+      return
+    }
+    const distanceText = distanceFt != null ? `${Math.round(distanceFt).toLocaleString()} ft to next size` : ''
     try {
       await ForegroundService.updateForegroundService({
         title: holeSize === 'Supply' ? 'Supply Line — no holes' : `${holeSize} holes`,
-        body: runName,
+        body: distanceText,
         id: 1001,
         smallIcon: 'ic_stat_notify',
         notificationChannelId: 'pipemaster_punching',
@@ -186,6 +209,9 @@ export default function PunchingMode({ run, onExit }) {
   }
 
   async function stopForegroundService() {
+    serviceReadyRef.current = false
+    pendingUpdateRef.current = null
+    lastDistanceBucketRef.current = null
     try {
       await ForegroundService.stopForegroundService()
     } catch { /* not Android */ }
@@ -288,19 +314,29 @@ export default function PunchingMode({ run, onExit }) {
         const seg = segmentAtFt(lineSegs, ft)
         setCurrentFt(ft)
         setCurrentSeg(seg)
-        if (seg && seg.holeSize !== lastHoleSizeRef.current) {
-          if (lastHoleSizeRef.current !== null) {
-            // Only use JS audio/vibration when the screen is on — the native foreground
-            // service handles TTS and vibration when the screen is locked.
-            if (document.visibilityState === 'visible') {
-              navigator.vibrate?.([200, 100, 200, 100, 200])
-              playChime()
-              speakHoleSize(seg.holeSize, selectedPattern).catch(() => {})
+        if (seg) {
+          const holeSizeChanged = seg.holeSize !== lastHoleSizeRef.current
+          if (holeSizeChanged) {
+            if (lastHoleSizeRef.current !== null) {
+              // Only use JS audio/vibration when the screen is on — the native foreground
+              // service handles TTS and vibration when the screen is locked.
+              if (document.visibilityState === 'visible') {
+                navigator.vibrate?.([200, 100, 200, 100, 200])
+                playChime()
+                speakHoleSize(seg.holeSize, selectedPattern).catch(() => {})
+              }
             }
+            lastHoleSizeRef.current = seg.holeSize
           }
-          lastHoleSizeRef.current = seg.holeSize
-          // Update lock-screen notification; native service speaks + vibrates if screen is off
-          updateForegroundNotification(seg.holeSize, run.name)
+          // Round to the nearest 25ft so the lock-screen distance updates as you walk without
+          // reposting the notification on every single GPS fix.
+          const distanceFt = Math.max(0, seg.endFt - ft)
+          const distanceBucket = Math.round(distanceFt / 25) * 25
+          if (holeSizeChanged || distanceBucket !== lastDistanceBucketRef.current) {
+            lastDistanceBucketRef.current = distanceBucket
+            // Update lock-screen notification; native service speaks + vibrates if screen is off
+            updateForegroundNotification(seg.holeSize, distanceFt)
+          }
         }
       },
       (err) => setGpsError(err.message),
