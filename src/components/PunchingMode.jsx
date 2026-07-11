@@ -135,6 +135,21 @@ export default function PunchingMode({ run, onExit }) {
 
   async function startForegroundService(runName) {
     try {
+      // AndroidManifest hardcodes foregroundServiceType="location" on this service, so Android
+      // requires ACCESS_FINE_LOCATION/COARSE_LOCATION to already be granted before ANY start —
+      // otherwise it throws a fatal SecurityException inside the native service lifecycle that
+      // no JS try/catch can reach, crashing the whole app. Force the permission prompt to
+      // resolve first so we never call startForegroundService() while it's still unresolved.
+      const hasLocationPermission = await new Promise((resolve) => {
+        if (!navigator.geolocation) { resolve(false); return }
+        navigator.geolocation.getCurrentPosition(
+          () => resolve(true),
+          () => resolve(false),
+          { maximumAge: 60000, timeout: 8000 }
+        )
+      })
+      if (!hasLocationPermission) return
+
       await ForegroundService.requestPermissions()
       // Delete before recreate — Android ignores createNotificationChannel for existing channels,
       // so VISIBILITY_PUBLIC would never apply unless we force a fresh creation each time.
