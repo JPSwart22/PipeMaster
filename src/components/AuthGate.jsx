@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getSession, onAuthStateChange, signUp, signIn, signInWithGoogle } from '../lib/auth'
 import { getMyFarm, setupFarm, joinFarmWithCode, saveProfile, isSubActive, getCachedSubAllowed } from '../lib/farms'
 import { startAutoSync, stopAutoSync } from '../lib/cloudSync'
@@ -242,6 +242,11 @@ export default function AuthGate({ children }) {
   const [session, setSession] = useState(undefined) // undefined = checking, null = signed out
   const [farm, setFarm]       = useState(undefined)
   const [subOk, setSubOk]     = useState(true) // assume ok until we know otherwise
+  // Supabase re-validates the session whenever the app regains visibility (e.g. unlocking the
+  // phone), firing onAuthStateChange for the SAME user. Without this guard, every unlock would
+  // blank farm → LoadingScreen → unmount the whole app tree underneath, wiping any in-progress
+  // screen state (like Punching Mode's live GPS tracking) for no reason.
+  const hasLoadedRef = useRef(false)
 
   useEffect(() => {
     getSession().then(setSession)
@@ -259,7 +264,11 @@ export default function AuthGate({ children }) {
       initPurchases(currUserId)
     }
 
-    setFarm(undefined)
+    // Only blank the screen on a genuine first load or an actual user change — a token
+    // refresh for the same already-loaded user shouldn't remount the whole app.
+    const isSameUserRefresh = hasLoadedRef.current && prevUserId === currUserId
+    if (!isSameUserRefresh) setFarm(undefined)
+
     const maybeWipe = prevUserId && currUserId && prevUserId !== currUserId
       ? clearAllTablesData().then(() => localStorage.removeItem('pipemaster-last-write-at'))
       : Promise.resolve()
@@ -274,6 +283,7 @@ export default function AuthGate({ children }) {
 
     maybeWipe.then(() => getMyFarm()).then(f => {
       setFarm(f)
+      hasLoadedRef.current = true
       if (f) setSubOk(isSubActive(f))
     }).catch(() => {
       // Offline — use cached sub status with 48 hr grace
@@ -284,6 +294,7 @@ export default function AuthGate({ children }) {
       } else {
         setFarm(null)
       }
+      hasLoadedRef.current = true
     })
   }, [session])
 

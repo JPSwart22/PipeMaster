@@ -5,6 +5,7 @@ import { ForegroundService, ServiceType } from '@capawesome-team/capacitor-andro
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
 import db from '../lib/db'
 import { nearestFtOnPath, segmentAtFt, pathTotalFt, HOLE_COLOR } from '../lib/pipeUtils'
+import { useBackClose } from '../lib/backButtonStack'
 
 // Centers on the first GPS fix, then smoothly pans (without fighting any zoom
 // the user has set) on every update after — feels like turn-by-turn nav apps
@@ -102,12 +103,23 @@ export default function PunchingMode({ run, onExit }) {
       return s?.runId === run.id ? (s.gearConfirmed ?? false) : false
     } catch { return false }
   })
+  // Computed once here (not just inside the GPS effect) so it can also be handed to the native
+  // foreground service, which does its own segment matching while the screen is locked.
+  const lineSegs = selectedLine ? (allSegments ?? []).filter(s => (s.line || 'Line 1') === selectedLine) : []
   const [position, setPosition] = useState(null)
   const [accuracy, setAccuracy] = useState(null)
   const [currentSeg, setCurrentSeg] = useState(null)
   const [currentFt, setCurrentFt] = useState(null)
   const [gpsError, setGpsError] = useState(null)
   const [showBatteryPrompt, setShowBatteryPrompt] = useState(false)
+  // serviceReadyRef alone won't cause the tracking-data-refresh effect below to re-check once
+  // it flips true — refs don't trigger re-renders. This tick makes that transition observable.
+  const [serviceReadyTick, setServiceReadyTick] = useState(0)
+  // Screen-locked tracking depends on OS settings (background location, battery unrestricted)
+  // that a one-time dismissible prompt is too easy to skip and never revisit — checked fresh
+  // every time punching mode opens instead.
+  const [readiness, setReadiness] = useState(null)
+  const [checkingReadiness, setCheckingReadiness] = useState(true)
   const lastHoleSizeRef = useRef(null)
   const lastDistanceBucketRef = useRef(null)
   const audioCtxRef = useRef(null)
@@ -121,6 +133,51 @@ export default function PunchingMode({ run, onExit }) {
   // flush it once ready — otherwise that segment's notification would be silently lost forever,
   // since lastHoleSizeRef already records it as "shown" the moment GPS resolves it.
   const pendingUpdateRef = useRef(null)
+
+  async function refreshReadiness() {
+    try {
+      const result = await ForegroundService.checkTrackingReadiness()
+      setReadiness(result)
+    } catch {
+      // Not Android, or the call failed — don't block non-Android platforms on Android-only checks
+      setReadiness({ fineLocation: true, backgroundLocation: true, notifications: true, batteryUnrestricted: true })
+    }
+    setCheckingReadiness(false)
+  }
+
+  useEffect(() => {
+    refreshReadiness()
+    // Re-check whenever the app regains focus — covers the case where the user backs out
+    // to Settings mid-checklist, fixes something, and returns.
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') refreshReadiness()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [])
+
+  async function requestLocationPermission() {
+    try {
+      await new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(resolve, resolve, { timeout: 8000 })
+      })
+    } catch { /* ignore */ }
+    refreshReadiness()
+  }
+
+  async function requestNotificationPermission() {
+    try { await ForegroundService.requestPermissions() } catch { /* ignore */ }
+    refreshReadiness()
+  }
+
+  async function requestBatteryUnrestricted() {
+    try { await ForegroundService.requestIgnoreBatteryOptimization() } catch { /* ignore */ }
+    refreshReadiness()
+  }
+
+  async function openAppSettings() {
+    try { await ForegroundService.openAppSettings() } catch { /* ignore */ }
+  }
 
   async function speakHoleSize(holeSize, pattern) {
     const text = buildVoiceText(holeSize, pattern)
@@ -180,8 +237,14 @@ export default function PunchingMode({ run, onExit }) {
         notificationChannelId: 'pipemaster_punching',
         serviceType: ServiceType.Location,
         silent: true,
+        // Lets the native service track GPS and match segments entirely on its own —
+        // Chromium suppresses navigator.geolocation.watchPosition() once the screen is
+        // locked (document.visibilityState 'hidden'), so JS can't be relied on for this.
+        path: JSON.stringify(run.path ?? []),
+        segments: JSON.stringify(lineSegs.map(s => ({ startFt: s.startFt, endFt: s.endFt, holeSize: s.holeSize }))),
       })
       serviceReadyRef.current = true
+      setServiceReadyTick(t => t + 1)
       if (pendingUpdateRef.current) {
         const pending = pendingUpdateRef.current
         pendingUpdateRef.current = null
@@ -251,6 +314,7 @@ export default function PunchingMode({ run, onExit }) {
         pattern: selectedPattern,
         line: selectedLine,
         gearConfirmed,
+        savedAt: Date.now(),
       }))
     } catch { /* storage quota exceeded — degrade silently */ }
   }, [run.id, selectedPattern, selectedLine, gearConfirmed])
@@ -272,6 +336,8 @@ export default function PunchingMode({ run, onExit }) {
     }
     return () => stopForegroundService()
   }, [gearConfirmed, run.name]) // eslint-disable-line
+
+  useBackClose(() => handleExit())
 
   function handleExit() {
     try { localStorage.removeItem('pipemaster-punching') } catch { }
@@ -298,11 +364,38 @@ export default function PunchingMode({ run, onExit }) {
     }
   }, [])
 
+  // Keeps the live map in sync with the native service's own GPS tracking (which runs
+  // regardless of screen state) — without this, reopening the app after a locked stretch
+  // would show a stale position until a fresh JS-side GPS fix happened to arrive.
+  useEffect(() => {
+    const listener = ForegroundService.addListener('positionUpdate', ({ lat, lon, ft, holeSize, segStartFt, segEndFt }) => {
+      setPosition([lat, lon])
+      setCurrentFt(ft)
+      setCurrentSeg(prev => (
+        prev && prev.startFt === segStartFt && prev.endFt === segEndFt && prev.holeSize === holeSize
+          ? prev
+          : (lineSegs.find(s => s.startFt === segStartFt && s.endFt === segEndFt) ?? prev)
+      ))
+    })
+    return () => { listener.remove() }
+  }, [lineSegs]) // eslint-disable-line
+
+  // The native service only gets path/segments once, at the moment it starts — if the DB
+  // query backing lineSegs hadn't resolved yet at that exact instant (a real timing race,
+  // since useLiveQuery is async), native would be stuck permanently tracking against an
+  // empty segment list and silently never fire. Resend whenever the real data shows up.
+  useEffect(() => {
+    if (!gearConfirmed || !serviceReadyRef.current || !lineSegs.length || !run.path?.length) return
+    ForegroundService.updateTrackingData({
+      path: JSON.stringify(run.path),
+      segments: JSON.stringify(lineSegs.map(s => ({ startFt: s.startFt, endFt: s.endFt, holeSize: s.holeSize }))),
+    }).catch(() => {})
+  }, [gearConfirmed, lineSegs, run.path, serviceReadyTick]) // eslint-disable-line
+
   // Live GPS → nearest point on the path → which segment that falls in
   useEffect(() => {
     if (!selectedLine || !run.path?.length) return
     if (!navigator.geolocation) { setGpsError('GPS not available on this device'); return }
-    const lineSegs = (allSegments ?? []).filter(s => (s.line || 'Line 1') === selectedLine)
 
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
@@ -348,6 +441,101 @@ export default function PunchingMode({ run, onExit }) {
   const totalFt = Math.round(pathTotalFt(run.path ?? []))
   const color = currentSeg ? (HOLE_COLOR[currentSeg.holeSize] ?? '#64748b') : '#1a2535'
   const accuracyFt = accuracy != null ? Math.round(accuracy / 0.3048) : null
+
+  // ── Step 0: permissions/settings checklist — screen-locked tracking silently fails
+  // without these, and they're easy to dismiss/forget, so check fresh every time instead
+  // of relying on a one-time prompt. Skipped entirely once everything checks out.
+  const readinessOk = readiness && readiness.fineLocation && readiness.backgroundLocation
+    && readiness.notifications && readiness.batteryUnrestricted
+  const [skipReadiness, setSkipReadiness] = useState(false)
+
+  if (checkingReadiness) {
+    return (
+      <div className="fixed inset-0 z-[3000] flex items-center justify-center" style={{ background: '#0f1923' }}>
+        <span className="text-gray-500 text-sm">Checking settings…</span>
+      </div>
+    )
+  }
+
+  if (readiness && !readinessOk && !skipReadiness) {
+    const items = [
+      {
+        key: 'fineLocation',
+        ok: readiness.fineLocation,
+        label: 'Location access',
+        desc: 'Needed to find you on the map at all.',
+        action: requestLocationPermission,
+        actionLabel: 'Grant',
+      },
+      {
+        key: 'backgroundLocation',
+        ok: readiness.backgroundLocation,
+        label: 'Location: "Allow all the time"',
+        desc: 'Without this, GPS stops the moment your screen locks. Tap below, then Permissions → Location → Allow all the time.',
+        action: openAppSettings,
+        actionLabel: 'Open Settings',
+      },
+      {
+        key: 'notifications',
+        ok: readiness.notifications,
+        label: 'Notifications',
+        desc: 'Shows your current hole size on the lock screen.',
+        action: requestNotificationPermission,
+        actionLabel: 'Grant',
+      },
+      {
+        key: 'batteryUnrestricted',
+        ok: readiness.batteryUnrestricted,
+        label: 'Battery: Unrestricted',
+        desc: 'Stops Android from pausing tracking while your screen is locked.',
+        action: requestBatteryUnrestricted,
+        actionLabel: 'Fix it',
+      },
+    ]
+    return (
+      <div className="fixed inset-0 z-[3000] flex flex-col" style={{ background: '#0f1923' }}>
+        <div className="flex items-center justify-between px-5 py-4">
+          <span className="text-white font-semibold text-lg truncate">{run.name}</span>
+          <button onClick={handleExit} className="text-gray-400 hover:text-white text-2xl leading-none flex-shrink-0">✕</button>
+        </div>
+        <div className="flex-1 overflow-y-auto flex flex-col gap-4 px-6 py-4">
+          <div>
+            <div className="text-white font-bold text-xl mb-1">Before you start punching</div>
+            <div className="text-gray-500 text-sm">These keep tracking, voice alerts, and vibration working while your screen is locked.</div>
+          </div>
+          <div className="flex flex-col gap-2.5">
+            {items.map(item => (
+              <div key={item.key} className="flex items-start gap-3 rounded-xl px-4 py-3"
+                   style={{ background: item.ok ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)', border: `1px solid ${item.ok ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
+                <span className="text-lg leading-none mt-0.5">{item.ok ? '✅' : '⚠️'}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-white font-semibold text-sm">{item.label}</div>
+                  <div className="text-gray-500 text-xs mt-0.5">{item.desc}</div>
+                </div>
+                {!item.ok && (
+                  <button onClick={item.action}
+                          className="flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-500 active:bg-blue-400">
+                    {item.actionLabel}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="text-gray-600 text-xs leading-relaxed rounded-xl px-4 py-3" style={{ background: 'rgba(255,255,255,0.03)' }}>
+            <span className="font-semibold text-gray-500">Samsung phones:</span> also check Settings → Battery and device care → Background usage limits, and make sure Pipemaster isn't listed under "Sleeping apps."
+          </div>
+          <button onClick={refreshReadiness}
+                  className="w-full py-3 rounded-xl font-semibold text-white text-sm border border-white/15 active:bg-white/5">
+            Recheck
+          </button>
+          <button onClick={() => setSkipReadiness(true)}
+                  className="text-gray-600 hover:text-gray-400 text-xs text-center transition-colors">
+            Continue anyway
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   // ── Step 1: pick line (skipped when only one) ────────────────────────────────
   if (!selectedLine) {
