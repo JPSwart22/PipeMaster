@@ -16,6 +16,7 @@ import PunchingMode from './PunchingMode'
 import FieldHistorySheet from './FieldHistorySheet'
 import EditWellSheet from './EditWellSheet'
 import FlagSheet from './FlagSheet'
+import { useBackClose } from '../lib/backButtonStack'
 
 const DELTA_CENTER = [33.45, -90.95]
 
@@ -85,6 +86,9 @@ function StartStopToggle({ isRunning, onToggle }) {
 function RunActionSheet({ run, onClose, defaultPunching = false }) {
   const [punching, setPunching] = useState(defaultPunching)
   const isRunning = run.status === 'running'
+  // Punching mode handles its own back-close (exiting punching mode first, not this sheet) —
+  // only register this sheet's close while punching mode isn't the thing showing.
+  useBackClose(onClose, !punching)
 
   async function handleToggle() {
     if (isRunning) await stopRun(run)
@@ -131,11 +135,19 @@ export default function FieldModeHome({ onSwitchToDevMode }) {
   const [showHistory, setShowHistory] = useState(false)
   const [flagSheetData, setFlagSheetData] = useState(null)
 
-  // Restore punching mode if the phone reloaded mid-session
+  // Restore punching mode if the app reloaded mid-session (crash, OS kill while locked, etc).
+  // Only within a short window, though — this is for recovering from an *unintentional*
+  // interruption, not for auto-resuming into punching mode hours later just because the user
+  // deliberately swiped the app away and reopened it another time that day.
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('pipemaster-punching') || 'null')
       if (!saved?.runId) return
+      const RESTORE_WINDOW_MS = 15 * 60 * 1000
+      if (!saved.savedAt || Date.now() - saved.savedAt > RESTORE_WINDOW_MS) {
+        localStorage.removeItem('pipemaster-punching')
+        return
+      }
       db.runs.get(saved.runId).then(run => {
         if (run) { setActionRun(run); setRestoringPunching(true) }
       })

@@ -66,15 +66,25 @@ function RunWithTees({ run, onAddRunFromTee, onOpenRunLog, onEditRun, onDeleteTe
 }
 
 // ── Riser row with its runs ───────────────────────────────────────────────────
+// Collapsed by default — a field with several risers, each with several runs,
+// would otherwise dump everything open at once and fill the whole panel.
 function RiserRow({ riser, well, onDeleteRiser, onAddRun, onAddRunFromTee, onOpenRunLog, onEditRun, onDeleteTee }) {
+  const [open, setOpen] = useState(false)
   const runs = useLiveQuery(
-    () => db.runs.where('riserId').equals(riser.id).filter(r => !r.teeId).toArray(),
+    () => open ? db.runs.where('riserId').equals(riser.id).filter(r => !r.teeId).toArray() : Promise.resolve(null),
+    [riser.id, open]
+  )
+  const runCount = useLiveQuery(
+    () => db.runs.where('riserId').equals(riser.id).filter(r => !r.teeId).count(),
     [riser.id]
   )
 
   return (
     <div className="mb-1">
       <div className="flex items-center gap-2 py-1.5 group">
+        <button onClick={() => setOpen(o => !o)} className="text-gray-600 text-[10px] w-3 flex-shrink-0">
+          {open ? '▼' : '▶'}
+        </button>
         <span className="text-gray-500 text-xs flex-shrink-0">◆</span>
         <EditableText
           value={riser.name}
@@ -82,6 +92,9 @@ function RiserRow({ riser, well, onDeleteRiser, onAddRun, onAddRunFromTee, onOpe
           className="text-gray-300 text-xs truncate flex-1"
           inputClassName="text-gray-300 text-xs flex-1"
         />
+        {!open && runCount > 0 && (
+          <span className="text-gray-600 text-xs flex-shrink-0">{runCount} run{runCount !== 1 ? 's' : ''}</span>
+        )}
         {well && (
           <span className="text-gray-600 text-xs truncate shrink-0">
             {well.type === 'electric' ? '⚡' : '⛽'} {well.name}
@@ -93,17 +106,19 @@ function RiserRow({ riser, well, onDeleteRiser, onAddRun, onAddRunFromTee, onOpe
         </button>
       </div>
 
-      <div className="pl-4 mb-2">
-        {runs?.map(run => (
-          <RunWithTees key={run.id} run={run} onAddRunFromTee={onAddRunFromTee} onOpenRunLog={onOpenRunLog} onEditRun={onEditRun} onDeleteTee={onDeleteTee} />
-        ))}
-        <button
-          onClick={() => onAddRun(riser)}
-          className="mt-1 w-full flex items-center justify-center gap-1 py-1 rounded-md text-xs font-medium transition-all active:opacity-70"
-          style={{ border: '1px dashed rgba(249,115,22,0.4)', color: '#f97316', background: 'transparent' }}>
-          + Add run
-        </button>
-      </div>
+      {open && (
+        <div className="pl-4 mb-2">
+          {runs?.map(run => (
+            <RunWithTees key={run.id} run={run} onAddRunFromTee={onAddRunFromTee} onOpenRunLog={onOpenRunLog} onEditRun={onEditRun} onDeleteTee={onDeleteTee} />
+          ))}
+          <button
+            onClick={() => onAddRun(riser)}
+            className="mt-1 w-full flex items-center justify-center gap-1 py-1 rounded-md text-xs font-medium transition-all active:opacity-70"
+            style={{ border: '1px dashed rgba(249,115,22,0.4)', color: '#f97316', background: 'transparent' }}>
+            + Add run
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -13,6 +13,7 @@ import TeeMarker from './TeeMarker'
 import UndergroundLine from './UndergroundLine'
 import PipeRunLine from './PipeRunLine'
 import { startTour } from '../lib/appTour'
+import { useBackClose } from '../lib/backButtonStack'
 import AddFarmSheet from './AddFarmSheet'
 import SaveFieldSheet from './SaveFieldSheet'
 import SaveWellSheet from './SaveWellSheet'
@@ -143,6 +144,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
   const [editingRiser, setEditingRiser]               = useState(null)
   const [sheet, setSheet]                             = useState(null)
   const [panelOpen, setPanelOpen]                 = useState(true)
+  useBackClose(() => setPanelOpen(false), panelOpen)
   const [drawingForRun, setDrawingForRun]         = useState(false)
   const [drawingForEditRun, setDrawingForEditRun] = useState(false)
   const [pendingEditPath, setPendingEditPath]     = useState(null)

@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useBackClose } from '../lib/backButtonStack'
 
 export default function BottomSheet({ title, onClose, children }) {
   const [kbOffset, setKbOffset] = useState(0)
+  useBackClose(onClose)
 
   useEffect(() => {
     const vv = window.visualViewport

@@ -6,7 +6,8 @@ function sizePx(zoom) {
   if (zoom >= 14) return 18
   if (zoom >= 12) return 12
   if (zoom >= 10) return 8
-  return 5
+  if (zoom >= 8) return 5
+  return 3
 }
 
 function makeRiserIcon(size) {

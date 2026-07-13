@@ -6,7 +6,8 @@ function sizePx(zoom) {
   if (zoom >= 14) return 32
   if (zoom >= 12) return 22
   if (zoom >= 10) return 16
-  return 10
+  if (zoom >= 8) return 10
+  return 6
 }
 
 function makeWellIcon(type, size) {

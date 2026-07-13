@@ -6,6 +6,7 @@ import TutorialMode from './components/TutorialMode'
 import HelpSheet from './components/HelpSheet'
 import PrivacyPolicy from './components/PrivacyPolicy'
 import TermsOfUse from './components/TermsOfUse'
+import { initBackButtonHandler, useBackClose } from './lib/backButtonStack'
 
 export default function App() {
   if (window.location.pathname === '/privacy') return <PrivacyPolicy />
@@ -14,6 +15,10 @@ export default function App() {
   const [mode, setMode] = useState(() => localStorage.getItem('pipemaster-mode') || 'field')
   const [showTutorial, setShowTutorial] = useState(() => !localStorage.getItem('pipemaster-intro-seen'))
   const [showHelp, setShowHelp] = useState(false)
+
+  useEffect(() => {
+    initBackButtonHandler()
+  }, [])
 
   useEffect(() => {
     localStorage.setItem('pipemaster-mode', mode)
@@ -29,6 +34,8 @@ export default function App() {
     localStorage.setItem('pipemaster-intro-seen', '1')
     setShowTutorial(false)
   }
+
+  useBackClose(() => setShowHelp(false), showHelp)
 
   return (
     <AuthGate>
