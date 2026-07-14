@@ -26,10 +26,17 @@ function SchematicCard({ schematic, path, totalFt, onRename, onRemove, onSetSegs
   const [open, setOpen] = useState(false)
   const holeSegs = schematic.segs.filter(s => s.holeSize !== 'Supply')
   const pattern = holeSegs[0]?.furrowPattern ?? null
+  // Watering duration applies to the whole schematic (not per hole-size), so it's stored
+  // redundantly on every segment including Supply, same pattern as line/schematic tags.
+  const wateringHours = schematic.segs[0]?.wateringHours ?? null
 
   function setPattern(value) {
     const next = pattern === value ? null : value
     onSetSegs(segs => segs.map(s => s.holeSize === 'Supply' ? s : { ...s, furrowPattern: next }))
+  }
+
+  function setWateringHours(value) {
+    onSetSegs(segs => segs.map(s => ({ ...s, wateringHours: value })))
   }
 
   return (
@@ -44,6 +51,7 @@ function SchematicCard({ schematic, path, totalFt, onRename, onRemove, onSetSegs
           <span className="text-gray-600 text-xs flex-shrink-0">
             {schematic.segs.length} seg{schematic.segs.length !== 1 ? 's' : ''}
             {pattern ? ` · ${pattern === 'every' ? 'every furrow' : 'alternating'}` : ''}
+            {wateringHours ? ` · ⏱ ${wateringHours}h` : ''}
           </span>
         )}
       </button>
@@ -80,6 +88,26 @@ function SchematicCard({ schematic, path, totalFt, onRename, onRemove, onSetSegs
                   {opt.label}
                 </button>
               ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 uppercase tracking-wider mb-1.5 block">
+              Watering timer <span className="normal-case text-gray-600">(optional)</span>
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                inputMode="decimal"
+                value={wateringHours ?? ''}
+                onChange={e => setWateringHours(e.target.value === '' ? null : parseFloat(e.target.value))}
+                placeholder="e.g. 24"
+                className="w-24 rounded-lg px-3 py-2 text-white text-sm outline-none border border-white/10 focus:border-green-500"
+                style={{ background: '#0f1923' }}
+              />
+              <span className="text-gray-500 text-sm">hours after starting, get a reminder to check watering</span>
             </div>
           </div>
 
@@ -197,6 +225,7 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
           endFt:         s.endFt,
           furrowCount:   s.furrowCount ?? null,
           furrowPattern: s.furrowPattern ?? null,
+          wateringHours: s.wateringHours ?? null,
         })),
       })),
     }))
@@ -325,6 +354,7 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
             holeSize:      seg.holeSize,
             furrowCount:   seg.holeSize === 'Supply' ? null : (parseInt(seg.furrowCount) || null),
             furrowPattern: seg.holeSize === 'Supply' ? null : (seg.furrowPattern ?? null),
+            wateringHours: seg.wateringHours ?? null,
             sortOrder:     i,
           })
         }
