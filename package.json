@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package || exit 0"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.102.0",
