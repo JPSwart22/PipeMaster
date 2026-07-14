@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { App } from '@capacitor/app'
 
 // A single global Android back-button listener, fed by a stack of "close the topmost thing"
@@ -23,13 +23,25 @@ export function initBackButtonHandler() {
 // Registers onClose as the action for the next back-button press while active is true —
 // call from any modal/sheet/overlay's own effect. Nesting order is a real stack: the most
 // recently opened layer closes first.
+//
+// Deliberately does NOT depend on onClose's identity — callers very often pass an inline
+// arrow function, which gets a new reference on every re-render (and useLiveQuery-backed
+// components re-render a lot). Keying the effect on that reference would tear down and
+// re-push this entry's stack position on nearly every render, letting the relative order
+// between nested layers drift and occasionally putting an outer "close everything" handler
+// on top of an inner "go back one level" one. A ref keeps the callback current without ever
+// touching the entry's position in the stack.
 export function useBackClose(onClose, active = true) {
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
   useEffect(() => {
     if (!active) return
-    stack.push(onClose)
+    const handler = () => onCloseRef.current()
+    stack.push(handler)
     return () => {
-      const i = stack.indexOf(onClose)
+      const i = stack.indexOf(handler)
       if (i !== -1) stack.splice(i, 1)
     }
-  }, [onClose, active])
+  }, [active])
 }
