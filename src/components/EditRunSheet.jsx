@@ -6,6 +6,105 @@ import db from '../lib/db'
 import { pathTotalFt, applyRangeEdit } from '../lib/pipeUtils'
 import { parsePipeSheet } from '../lib/parseSheet'
 
+const FURROW_PATTERNS = [
+  { value: 'every',     label: 'Every furrow',      color: '#22c55e' },
+  { value: 'alternate', label: 'Every other furrow', color: '#f97316' },
+]
+
+function nextSchematicName(existingNames) {
+  for (let c = 65; c <= 90; c++) {
+    const letter = String.fromCharCode(c)
+    if (!existingNames.includes(letter)) return letter
+  }
+  return `Schematic ${existingNames.length + 1}`
+}
+
+// One named way of punching a line — its own hole sizes and furrow pattern.
+// Collapsed by default so a line with several schematics doesn't dump all of
+// them open (mark holes / range edit / segment table each) at once.
+function SchematicCard({ schematic, path, totalFt, onRename, onRemove, onSetSegs, onMarkHolesRequest, onRangeEditRequest, canRemove }) {
+  const [open, setOpen] = useState(false)
+  const holeSegs = schematic.segs.filter(s => s.holeSize !== 'Supply')
+  const pattern = holeSegs[0]?.furrowPattern ?? null
+
+  function setPattern(value) {
+    const next = pattern === value ? null : value
+    onSetSegs(segs => segs.map(s => s.holeSize === 'Supply' ? s : { ...s, furrowPattern: next }))
+  }
+
+  return (
+    <div className="rounded-lg overflow-hidden" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 transition-all hover:bg-white/5"
+        style={{ background: 'rgba(255,255,255,0.03)' }}>
+        <span className="text-gray-500 text-xs flex-shrink-0">{open ? '▼' : '▶'}</span>
+        <span className="text-gray-200 text-sm font-medium flex-1 text-left truncate">{schematic.name}</span>
+        {!open && (
+          <span className="text-gray-600 text-xs flex-shrink-0">
+            {schematic.segs.length} seg{schematic.segs.length !== 1 ? 's' : ''}
+            {pattern ? ` · ${pattern === 'every' ? 'every furrow' : 'alternating'}` : ''}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="flex flex-col gap-2.5 px-3 pb-3 pt-1">
+          <div className="flex items-center justify-between gap-2">
+            <input
+              value={schematic.name}
+              onChange={e => onRename(e.target.value)}
+              className="text-sm text-gray-200 font-semibold bg-transparent border-b border-white/10 focus:border-green-500 outline-none px-0.5 py-1 flex-1 min-w-0"
+            />
+            {canRemove && (
+              <button onClick={onRemove} className="text-red-700 hover:text-red-500 text-xs transition-colors flex-shrink-0">
+                Remove
+              </button>
+            )}
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 uppercase tracking-wider mb-1.5 block">
+              Furrow pattern <span className="normal-case text-gray-600">(optional)</span>
+            </label>
+            <div className="flex gap-2">
+              {FURROW_PATTERNS.map(opt => (
+                <button key={opt.value}
+                        onClick={() => setPattern(opt.value)}
+                        className="flex-1 py-2 rounded-lg text-xs font-semibold border transition-all"
+                        style={{
+                          borderColor: pattern === opt.value ? opt.color : 'rgba(255,255,255,0.1)',
+                          background:  pattern === opt.value ? `${opt.color}20` : 'transparent',
+                          color:       pattern === opt.value ? opt.color : '#6b7280',
+                        }}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-1.5">
+            <button
+              onClick={onMarkHolesRequest}
+              disabled={!path?.length}
+              className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl border border-green-500/40 text-green-400 text-xs font-medium hover:bg-green-500/10 active:bg-green-500/20 disabled:opacity-30 transition-all">
+              📍 Mark holes
+            </button>
+            <button
+              onClick={onRangeEditRequest}
+              disabled={!path?.length}
+              className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl border border-orange-500/40 text-orange-400 text-xs font-medium hover:bg-orange-500/10 active:bg-orange-500/20 disabled:opacity-30 transition-all">
+              ✏️ Edit range
+            </button>
+          </div>
+
+          <SegmentTable segs={schematic.segs} setSegs={onSetSegs} totalFt={totalFt} />
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRequest, onAddRunFromTee, onMarkHolesRequest, markedSegs, onRangeEditRequest, rangeEditResult, onClose, onSaved }) {
   const existingSegments = useLiveQuery(
     () => db.segments.where('runId').equals(run.id).toArray(),
@@ -29,7 +128,9 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
 
   const [path, setPath]                   = useState(run.path ?? null)
   const [name, setName]                   = useState(run.name ?? '')
-  const [furrowPattern, setFurrowPattern] = useState(run.furrowPattern ?? null)
+  // lines: [{ name, schematics: [{ name, segs }] }] — a Line is the physical side/grouping
+  // (unchanged concept); each Line can now have multiple named Schematics, each its own
+  // complete way of punching that same physical line (different hole sizes/furrow pattern).
   const [lines, setLines]                 = useState(null)
   const [saving, setSaving]               = useState(false)
   const [importing, setImporting]         = useState(false)
@@ -45,9 +146,12 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
   useEffect(() => {
     if (!markedSegs) return
     setLines(prev => {
-      if (!prev || !prev[markedSegs.lineIndex]) return prev
+      if (!prev || !prev[markedSegs.lineIndex]?.schematics[markedSegs.schematicIndex]) return prev
       const updated = [...prev]
-      updated[markedSegs.lineIndex] = { ...updated[markedSegs.lineIndex], segs: markedSegs.segs }
+      const line = updated[markedSegs.lineIndex]
+      const schematics = [...line.schematics]
+      schematics[markedSegs.schematicIndex] = { ...schematics[markedSegs.schematicIndex], segs: markedSegs.segs }
+      updated[markedSegs.lineIndex] = { ...line, schematics }
       return updated
     })
   }, [markedSegs])
@@ -55,14 +159,16 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
   useEffect(() => {
     if (!rangeEditResult) return
     setLines(prev => {
-      if (!prev) return prev
+      if (!prev || !prev[rangeEditResult.lineIdx]?.schematics[rangeEditResult.schematicIdx]) return prev
       const updated = [...prev]
       const line = updated[rangeEditResult.lineIdx]
-      if (!line) return prev
-      updated[rangeEditResult.lineIdx] = {
-        ...line,
-        segs: applyRangeEdit(line.segs, rangeEditResult.startFt, rangeEditResult.endFt, rangeEditResult.holeSize, rangeEditResult.furrowPattern),
+      const schematics = [...line.schematics]
+      const schematic = schematics[rangeEditResult.schematicIdx]
+      schematics[rangeEditResult.schematicIdx] = {
+        ...schematic,
+        segs: applyRangeEdit(schematic.segs, rangeEditResult.startFt, rangeEditResult.endFt, rangeEditResult.holeSize, rangeEditResult.furrowPattern),
       }
+      updated[rangeEditResult.lineIdx] = { ...line, schematics }
       return updated
     })
   }, [rangeEditResult?.at])
@@ -71,22 +177,27 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
     if (!existingSegments || lines !== null) return
     if (existingSegments.length === 0) {
       const ft = Math.round(pathTotalFt(run.path ?? []))
-      setLines([{ name: 'Line 1', segs: [{ holeSize: 'Supply', endFt: ft, furrowCount: null }] }])
+      setLines([{ name: 'Line 1', schematics: [{ name: 'A', segs: [{ holeSize: 'Supply', endFt: ft, furrowCount: null }] }] }])
       return
     }
-    const grouped = {}
+    const groupedByLine = {}
     existingSegments.forEach(s => {
       const lineName = s.line || 'Line 1'
-      if (!grouped[lineName]) grouped[lineName] = []
-      grouped[lineName].push(s)
+      const schematicName = s.schematic || 'A'
+      if (!groupedByLine[lineName]) groupedByLine[lineName] = {}
+      if (!groupedByLine[lineName][schematicName]) groupedByLine[lineName][schematicName] = []
+      groupedByLine[lineName][schematicName].push(s)
     })
-    const lineArr = Object.entries(grouped).map(([lineName, segs]) => ({
+    const lineArr = Object.entries(groupedByLine).map(([lineName, schematicsObj]) => ({
       name: lineName,
-      segs: [...segs].sort((a, b) => a.sortOrder - b.sortOrder).map(s => ({
-        holeSize:      s.holeSize,
-        endFt:         s.endFt,
-        furrowCount:   s.furrowCount ?? null,
-        furrowPattern: s.furrowPattern ?? null,
+      schematics: Object.entries(schematicsObj).map(([schematicName, segs]) => ({
+        name: schematicName,
+        segs: [...segs].sort((a, b) => a.sortOrder - b.sortOrder).map(s => ({
+          holeSize:      s.holeSize,
+          endFt:         s.endFt,
+          furrowCount:   s.furrowCount ?? null,
+          furrowPattern: s.furrowPattern ?? null,
+        })),
       })),
     }))
     setLines(lineArr)
@@ -96,15 +207,17 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
 
   function applyRun(r) {
     setLines(prev => {
-      const updated = [...(prev ?? [])]
-      updated[0] = {
-        name: updated[0]?.name ?? 'Line 1',
+      const updated = prev?.length ? [...prev] : [{ name: 'Line 1', schematics: [] }]
+      const line = updated[0]
+      const newSchematic = {
+        name: nextSchematicName(line.schematics.map(s => s.name)),
         segs: r.segments.map(s => ({
           holeSize:    s.holeSize,
           endFt:       s.endFt,
           furrowCount: s.furrowCount ?? null,
         })),
       }
+      updated[0] = { ...line, schematics: [...line.schematics, newSchematic] }
       return updated
     })
     setImportedRuns(null)
@@ -136,10 +249,13 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
     const ft = Math.round(pathTotalFt(path ?? []))
     setLines(prev => [...(prev ?? []), {
       name: `Line ${(prev?.length ?? 0) + 1}`,
-      segs: [
-        { holeSize: 'Supply', endFt: 0,          furrowCount: null },
-        { holeSize: '5/8"',   endFt: ft || 1000,  furrowCount: null },
-      ],
+      schematics: [{
+        name: 'A',
+        segs: [
+          { holeSize: 'Supply', endFt: 0,          furrowCount: null },
+          { holeSize: '5/8"',   endFt: ft || 1000,  furrowCount: null },
+        ],
+      }],
     }])
   }
   function removeLine(i) {
@@ -148,35 +264,70 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
   function renameLine(i, lineName) {
     setLines(prev => prev.map((l, idx) => idx === i ? { ...l, name: lineName } : l))
   }
-  function setLineSegs(i, updater) {
+
+  function addSchematic(lineIdx) {
     setLines(prev => prev.map((l, idx) => {
-      if (idx !== i) return l
-      const segs = typeof updater === 'function' ? updater(l.segs) : updater
-      return { ...l, segs }
+      if (idx !== lineIdx) return l
+      const ft = Math.round(pathTotalFt(path ?? []))
+      return {
+        ...l,
+        schematics: [...l.schematics, {
+          name: nextSchematicName(l.schematics.map(s => s.name)),
+          segs: [{ holeSize: 'Supply', endFt: ft || 1000, furrowCount: null }],
+        }],
+      }
+    }))
+  }
+  function removeSchematic(lineIdx, schematicIdx) {
+    setLines(prev => prev.map((l, idx) => {
+      if (idx !== lineIdx) return l
+      return { ...l, schematics: l.schematics.filter((_, si) => si !== schematicIdx) }
+    }))
+  }
+  function renameSchematic(lineIdx, schematicIdx, schematicName) {
+    setLines(prev => prev.map((l, idx) => {
+      if (idx !== lineIdx) return l
+      return { ...l, schematics: l.schematics.map((sc, si) => si === schematicIdx ? { ...sc, name: schematicName } : sc) }
+    }))
+  }
+  function setSchematicSegs(lineIdx, schematicIdx, updater) {
+    setLines(prev => prev.map((l, idx) => {
+      if (idx !== lineIdx) return l
+      return {
+        ...l,
+        schematics: l.schematics.map((sc, si) => {
+          if (si !== schematicIdx) return sc
+          const segs = typeof updater === 'function' ? updater(sc.segs) : updater
+          return { ...sc, segs }
+        }),
+      }
     }))
   }
 
   async function handleSave() {
     if (!name.trim() || !lines) return
     setSaving(true)
-    const update = { name: name.trim(), furrowPattern: furrowPattern ?? null }
+    const update = { name: name.trim() }
     if (path?.length) update.path = path
     await db.runs.update(run.id, update)
     await db.segments.where('runId').equals(run.id).delete()
     for (const line of lines) {
-      for (let i = 0; i < line.segs.length; i++) {
-        const seg     = line.segs[i]
-        const startFt = i === 0 ? 0 : line.segs[i - 1].endFt
-        await db.segments.add({
-          runId:         run.id,
-          line:          line.name,
-          startFt,
-          endFt:         seg.endFt,
-          holeSize:      seg.holeSize,
-          furrowCount:   seg.holeSize === 'Supply' ? null : (parseInt(seg.furrowCount) || null),
-          furrowPattern: seg.holeSize === 'Supply' ? null : (seg.furrowPattern ?? null),
-          sortOrder:     i,
-        })
+      for (const schematic of line.schematics) {
+        for (let i = 0; i < schematic.segs.length; i++) {
+          const seg     = schematic.segs[i]
+          const startFt = i === 0 ? 0 : schematic.segs[i - 1].endFt
+          await db.segments.add({
+            runId:         run.id,
+            line:          line.name,
+            schematic:     schematic.name,
+            startFt,
+            endFt:         seg.endFt,
+            holeSize:      seg.holeSize,
+            furrowCount:   seg.holeSize === 'Supply' ? null : (parseInt(seg.furrowCount) || null),
+            furrowPattern: seg.holeSize === 'Supply' ? null : (seg.furrowPattern ?? null),
+            sortOrder:     i,
+          })
+        }
       }
     }
     onSaved()
@@ -213,7 +364,7 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
     )
   }
 
-  const totalSegs    = lines.reduce((n, l) => n + l.segs.length, 0)
+  const totalSchematics = lines.reduce((n, l) => n + l.schematics.length, 0)
   const linksSummary = linkedRun?.name
     ? `⛓ ${linkedRun.name}`
     : (tees?.length ? `${tees.length} tee${tees.length !== 1 ? 's' : ''}` : '')
@@ -231,30 +382,6 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
             value={name}
             onChange={e => setName(e.target.value)}
           />
-        </div>
-
-        {/* ── Furrow pattern ───────────────────────────────────────────── */}
-        <div>
-          <label className="text-xs text-gray-500 uppercase tracking-wider mb-2 block">
-            Furrow pattern <span className="normal-case text-gray-600">(optional)</span>
-          </label>
-          <div className="flex gap-2">
-            {[
-              { value: 'every',     label: 'Every furrow',      color: '#22c55e' },
-              { value: 'alternate', label: 'Every other furrow', color: '#f97316' },
-            ].map(opt => (
-              <button key={opt.value}
-                      onClick={() => setFurrowPattern(furrowPattern === opt.value ? null : opt.value)}
-                      className="flex-1 py-2.5 rounded-xl text-xs font-semibold border transition-all"
-                      style={{
-                        borderColor: furrowPattern === opt.value ? opt.color : 'rgba(255,255,255,0.1)',
-                        background:  furrowPattern === opt.value ? `${opt.color}20` : 'transparent',
-                        color:       furrowPattern === opt.value ? opt.color : '#6b7280',
-                      }}>
-                {opt.label}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* ── Path ─────────────────────────────────────────────────────── */}
@@ -282,7 +409,7 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
             <div className="flex items-center gap-2">
               {!schemOpen && (
                 <span className="text-xs text-gray-500">
-                  {lines.length > 1 ? `${lines.length} lines` : ''}{lines.length > 1 && totalSegs ? ' · ' : ''}{totalSegs} seg{totalSegs !== 1 ? 's' : ''}
+                  {lines.length > 1 ? `${lines.length} lines` : ''}{lines.length > 1 && totalSchematics ? ' · ' : ''}{totalSchematics} schematic{totalSchematics !== 1 ? 's' : ''}
                 </span>
               )}
               <span className="text-gray-500 text-xs">{schemOpen ? '▲' : '▼'}</span>
@@ -292,7 +419,7 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
           {schemOpen && (
             <div className="flex flex-col gap-3 px-3 pb-3 pt-2">
 
-              {/* Upload schematic */}
+              {/* Upload schematic — snaps in as a new named schematic under the first line */}
               <div className="flex gap-1.5">
                 <label className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border text-sm font-medium transition-all ${
                   importing ? 'text-gray-500 border-white/10 cursor-not-allowed' : 'border-blue-500/40 text-blue-400 cursor-pointer hover:bg-blue-500/10'
@@ -334,37 +461,47 @@ export default function EditRunSheet({ run, drawnPath, onDrawRequest, onAddTeeRe
                 </div>
               )}
 
-              {/* One segment table per physical line */}
-              {lines.map((line, i) => (
-                <div key={i} className="flex flex-col gap-2">
+              {/* One card per physical line, each holding its named schematics */}
+              {lines.map((line, li) => (
+                <div key={li} className="flex flex-col gap-2">
                   {lines.length > 1 && (
                     <div className="flex items-center justify-between">
                       <input
                         value={line.name}
-                        onChange={e => renameLine(i, e.target.value)}
+                        onChange={e => renameLine(li, e.target.value)}
                         className="text-sm text-gray-200 font-semibold bg-transparent border-b border-white/10 focus:border-green-500 outline-none px-0.5 py-1"
                       />
-                      <button onClick={() => removeLine(i)}
+                      <button onClick={() => removeLine(li)}
                               className="text-red-700 hover:text-red-500 text-xs transition-colors">
                         Remove
                       </button>
                     </div>
                   )}
-                  <div className="flex gap-1.5">
-                    <button
-                      onClick={() => onMarkHolesRequest(path, i)}
-                      disabled={!path?.length}
-                      className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl border border-green-500/40 text-green-400 text-xs font-medium hover:bg-green-500/10 active:bg-green-500/20 disabled:opacity-30 transition-all">
-                      📍 Mark holes
-                    </button>
-                    <button
-                      onClick={() => onRangeEditRequest(path, i)}
-                      disabled={!path?.length}
-                      className="flex-1 flex items-center justify-center gap-1 py-2.5 rounded-xl border border-orange-500/40 text-orange-400 text-xs font-medium hover:bg-orange-500/10 active:bg-orange-500/20 disabled:opacity-30 transition-all">
-                      ✏️ Edit range
-                    </button>
+
+                  <div className="flex flex-col gap-2">
+                    {line.schematics.map((schematic, si) => (
+                      <SchematicCard
+                        key={si}
+                        schematic={schematic}
+                        path={path}
+                        totalFt={totalFt}
+                        canRemove={line.schematics.length > 1}
+                        onRename={(schematicName) => renameSchematic(li, si, schematicName)}
+                        onRemove={() => removeSchematic(li, si)}
+                        onSetSegs={(u) => setSchematicSegs(li, si, u)}
+                        onMarkHolesRequest={() => onMarkHolesRequest(path, li, si)}
+                        onRangeEditRequest={() => onRangeEditRequest(path, li, si)}
+                      />
+                    ))}
                   </div>
-                  <SegmentTable segs={line.segs} setSegs={(u) => setLineSegs(i, u)} totalFt={totalFt} />
+
+                  <button
+                    onClick={() => addSchematic(li)}
+                    className="w-full py-2 rounded-lg border border-dashed text-xs font-medium transition-all active:opacity-70"
+                    style={{ borderColor: 'rgba(34,197,94,0.4)', color: '#4ade80' }}>
+                    + Add schematic
+                    <span className="text-gray-600 ml-1">(another way to punch this line)</span>
+                  </button>
                 </div>
               ))}
 

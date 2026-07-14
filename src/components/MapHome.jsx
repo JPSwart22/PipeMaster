@@ -20,7 +20,6 @@ import SaveWellSheet from './SaveWellSheet'
 import SaveRiserSheet from './SaveRiserSheet'
 import SaveRunSheet from './SaveRunSheet'
 import EditRunSheet from './EditRunSheet'
-import RunLogSheet from './RunLogSheet'
 import SidePanel from './SidePanel'
 import EditWellSheet from './EditWellSheet'
 import EditRiserSheet from './EditRiserSheet'
@@ -139,7 +138,6 @@ export default function MapHome({ onSwitchToFieldMode }) {
   const [activeWell, setActiveWell]               = useState(null)
   const [activeRiserForRun, setActiveRiserForRun]     = useState(null)
   const [editingRun, setEditingRun]                   = useState(null)
-  const [loggingRun, setLoggingRun]                   = useState(null)
   const [editingWell, setEditingWell]                 = useState(null)
   const [editingRiser, setEditingRiser]               = useState(null)
   const [sheet, setSheet]                             = useState(null)
@@ -151,15 +149,15 @@ export default function MapHome({ onSwitchToFieldMode }) {
   const [fabMenuOpen, setFabMenuOpen]             = useState(false)
   const [activeTeeMarker, setActiveTeeMarker]     = useState(null)
   const [placingTeeForRun, setPlacingTeeForRun]   = useState(null)
-  const [markingHoles, setMarkingHoles]           = useState(null) // { run, lineIndex, segs }
+  const [markingHoles, setMarkingHoles]           = useState(null) // { run, lineIndex, schematicIndex, segs }
   const [markingPendingFt, setMarkingPendingFt]   = useState(null)
   const [markingFurrowPattern, setMarkingFurrowPattern] = useState('every')
-  const [markedSegsResult, setMarkedSegsResult]   = useState(null) // { lineIndex, segs, at }
+  const [markedSegsResult, setMarkedSegsResult]   = useState(null) // { lineIndex, schematicIndex, segs, at }
   const [placingFlag, setPlacingFlag]             = useState(false)
   const [flagSheetData, setFlagSheetData]         = useState(null) // { lat, lon } for new, or flag object for viewing
   const [drawCursorPos, setDrawCursorPos]         = useState(null)
   const [rangeEditSession, setRangeEditSession]   = useState(null)
-  // { path, lineIdx, phase: 'start'|'end'|'pick', startFt, startPos, endFt, endPos }
+  // { path, lineIdx, schematicIdx, phase: 'start'|'end'|'pick', startFt, startPos, endFt, endPos }
   const [rangeEditResult, setRangeEditResult]     = useState(null)
   const [rangeEditPattern, setRangeEditPattern]   = useState('every')
 
@@ -370,9 +368,9 @@ export default function MapHome({ onSwitchToFieldMode }) {
   }
 
   // ── Mark hole sizes along a run, point by point ───────────────────────────
-  function handleMarkHolesRequest(path, lineIndex) {
+  function handleMarkHolesRequest(path, lineIndex, schematicIndex) {
     if (!path?.length) return
-    setMarkingHoles({ path, lineIndex, segs: [] })
+    setMarkingHoles({ path, lineIndex, schematicIndex, segs: [] })
     setMarkingPendingFt(null)
     setMarkingFurrowPattern('every')
   }
@@ -403,7 +401,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
     const last = { ...segs[segs.length - 1] }
     if (last.endFt < ft) last.endFt = ft
     segs[segs.length - 1] = last
-    setMarkedSegsResult({ lineIndex: markingHoles.lineIndex, segs, at: Date.now() })
+    setMarkedSegsResult({ lineIndex: markingHoles.lineIndex, schematicIndex: markingHoles.schematicIndex, segs, at: Date.now() })
     setMarkingHoles(null)
     setMarkingPendingFt(null)
   }
@@ -414,8 +412,8 @@ export default function MapHome({ onSwitchToFieldMode }) {
   }
 
   // ── Range edit (tap start + end on map to reassign hole size) ────────────────
-  function handleRangeEditRequest(path, lineIdx) {
-    setRangeEditSession({ path, lineIdx, phase: 'start', startFt: null, startPos: null, endFt: null, endPos: null })
+  function handleRangeEditRequest(path, lineIdx, schematicIdx) {
+    setRangeEditSession({ path, lineIdx, schematicIdx, phase: 'start', startFt: null, startPos: null, endFt: null, endPos: null })
     setRangeEditResult(null)
     setRangeEditPattern('every')
   }
@@ -437,6 +435,7 @@ export default function MapHome({ onSwitchToFieldMode }) {
     if (!rangeEditSession) return
     setRangeEditResult({
       lineIdx:      rangeEditSession.lineIdx,
+      schematicIdx: rangeEditSession.schematicIdx,
       startFt:      rangeEditSession.startFt,
       endFt:        rangeEditSession.endFt,
       holeSize,
@@ -457,9 +456,11 @@ export default function MapHome({ onSwitchToFieldMode }) {
     setSheet('editRun')
   }
 
+  // Edit Mode is for setup/configuration, not for running irrigation — tapping a run here
+  // goes straight to editing it instead of through RunLogSheet's Start/Stop control, which
+  // belongs to Field Mode.
   function handleOpenRunLog(run) {
-    setLoggingRun(run)
-    setSheet('runLog')
+    handleEditRun(run)
   }
 
   function handleEditRunDrawRequest() {
@@ -921,13 +922,6 @@ export default function MapHome({ onSwitchToFieldMode }) {
               onSaved={() => { setSheet(null); setEditingRun(null); setPendingEditPath(null); setMarkedSegsResult(null); setRangeEditResult(null) }}
             />
           </div>
-        )}
-        {sheet === 'runLog' && loggingRun && (
-          <RunLogSheet
-            run={runs?.find(r => r.id === loggingRun.id) ?? loggingRun}
-            onClose={() => { setSheet(null); setLoggingRun(null) }}
-            onEditDetails={() => handleEditRun(loggingRun)}
-          />
         )}
         {editingWell && (
           <EditWellSheet

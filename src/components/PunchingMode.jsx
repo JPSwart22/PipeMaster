@@ -30,11 +30,6 @@ function furrowPatternLabel(pattern) {
   return 'Furrow pattern not set'
 }
 
-const PUNCH_PATTERNS = [
-  { value: 'every',     label: 'Every furrow',      color: '#22c55e' },
-  { value: 'alternate', label: 'Every other furrow', color: '#f97316' },
-]
-
 const HOLE_FRACTIONS = {
   '1/4"':  'one quarter',
   '5/16"': 'five sixteenths',
@@ -67,34 +62,26 @@ export default function PunchingMode({ run, onExit }) {
   )
   const lineNames = [...new Set((allSegments ?? []).map(s => s.line || 'Line 1'))]
 
-  // Patterns that actually appear in the segments (non-Supply only)
-  const segmentPatterns = [...new Set(
+  // Named schematics available for the selected line — each schematic is a complete,
+  // independent way of punching that same physical line (its own hole sizes + furrow
+  // pattern), set up ahead of time in Edit Mode.
+  const schematicNames = selectedLineForSchematics => [...new Set(
     (allSegments ?? [])
-      .filter(s => s.holeSize !== 'Supply' && s.furrowPattern)
-      .map(s => s.furrowPattern)
+      .filter(s => (s.line || 'Line 1') === selectedLineForSchematics)
+      .map(s => s.schematic || 'A')
   )]
-  // Only show patterns that exist in this run's data; fall back to both if none set
-  const availablePatterns = PUNCH_PATTERNS.filter(p =>
-    segmentPatterns.length === 0 || segmentPatterns.includes(p.value)
-  )
 
-  // Restore from localStorage if the phone reloaded mid-session
-  const [selectedPattern, setSelectedPattern] = useState(() => {
-    try {
-      const s = JSON.parse(localStorage.getItem('pipemaster-punching') || 'null')
-      return s?.runId === run.id ? (s.pattern ?? run.furrowPattern ?? null) : (run.furrowPattern ?? null)
-    } catch { return run.furrowPattern ?? null }
-  })
-
-  // Auto-select if segments only have one pattern and nothing is selected yet
-  useEffect(() => {
-    if (selectedPattern) return
-    if (segmentPatterns.length === 1) setSelectedPattern(segmentPatterns[0])
-  }, [allSegments])
   const [selectedLine, setSelectedLine] = useState(() => {
     try {
       const s = JSON.parse(localStorage.getItem('pipemaster-punching') || 'null')
       return s?.runId === run.id ? (s.line ?? null) : null
+    } catch { return null }
+  })
+  // Restore from localStorage if the phone reloaded mid-session
+  const [selectedSchematic, setSelectedSchematic] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem('pipemaster-punching') || 'null')
+      return s?.runId === run.id ? (s.schematic ?? null) : null
     } catch { return null }
   })
   const [gearConfirmed, setGearConfirmed] = useState(() => {
@@ -103,9 +90,22 @@ export default function PunchingMode({ run, onExit }) {
       return s?.runId === run.id ? (s.gearConfirmed ?? false) : false
     } catch { return false }
   })
+
+  const availableSchematics = selectedLine ? schematicNames(selectedLine) : []
+  // Auto-select if the line only has one schematic and nothing is selected yet
+  useEffect(() => {
+    if (selectedSchematic || !selectedLine) return
+    if (availableSchematics.length === 1) setSelectedSchematic(availableSchematics[0])
+  }, [allSegments, selectedLine]) // eslint-disable-line
+
   // Computed once here (not just inside the GPS effect) so it can also be handed to the native
   // foreground service, which does its own segment matching while the screen is locked.
-  const lineSegs = selectedLine ? (allSegments ?? []).filter(s => (s.line || 'Line 1') === selectedLine) : []
+  const lineSegs = (selectedLine && selectedSchematic)
+    ? (allSegments ?? []).filter(s => (s.line || 'Line 1') === selectedLine && (s.schematic || 'A') === selectedSchematic)
+    : []
+  // Furrow pattern now lives on the schematic (all its non-Supply segments share one value,
+  // set together in Edit Mode) rather than being asked separately here.
+  const selectedPattern = lineSegs.find(s => s.holeSize !== 'Supply')?.furrowPattern ?? null
   const [position, setPosition] = useState(null)
   const [accuracy, setAccuracy] = useState(null)
   const [currentSeg, setCurrentSeg] = useState(null)
@@ -307,17 +307,17 @@ export default function PunchingMode({ run, onExit }) {
 
   // Persist punching state so a page reload restores straight back here
   useEffect(() => {
-    if (!selectedPattern && !selectedLine && !gearConfirmed) return
+    if (!selectedSchematic && !selectedLine && !gearConfirmed) return
     try {
       localStorage.setItem('pipemaster-punching', JSON.stringify({
         runId: run.id,
-        pattern: selectedPattern,
+        schematic: selectedSchematic,
         line: selectedLine,
         gearConfirmed,
         savedAt: Date.now(),
       }))
     } catch { /* storage quota exceeded — degrade silently */ }
-  }, [run.id, selectedPattern, selectedLine, gearConfirmed])
+  }, [run.id, selectedSchematic, selectedLine, gearConfirmed])
 
   // Start (or restore) foreground service the moment gearConfirmed goes true.
   // Also re-starts it if the process was killed while locked and restores from localStorage.
@@ -558,23 +558,31 @@ export default function PunchingMode({ run, onExit }) {
     )
   }
 
-  // ── Step 2: pick furrow pattern (skipped if run already has one tagged) ──────
-  if (!selectedPattern) {
+  // ── Step 2: pick schematic (skipped if the line only has one) ────────────────
+  if (!selectedSchematic) {
+    const lineAllSegs = (allSegments ?? []).filter(s => (s.line || 'Line 1') === selectedLine)
     return (
       <div className="fixed inset-0 z-[3000] flex flex-col" style={{ background: '#0f1923' }}>
         <div className="flex items-center justify-between px-5 py-4">
           <span className="text-white font-semibold text-lg truncate">{run.name}</span>
           <button onClick={handleExit} className="text-gray-400 hover:text-white text-2xl leading-none flex-shrink-0">✕</button>
         </div>
-        <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6">
-          <div className="text-gray-400 text-sm mb-1">Which pattern are you punching today?</div>
-          {availablePatterns.map(opt => (
-            <button key={opt.value} onClick={() => setSelectedPattern(opt.value)}
-                    className="w-full max-w-xs py-5 rounded-2xl font-semibold text-xl border-2 transition-all"
-                    style={{ borderColor: opt.color, color: opt.color, background: `${opt.color}12` }}>
-              {opt.label}
-            </button>
-          ))}
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6">
+          <div className="text-gray-400 text-sm mb-2">Which schematic are you punching today?</div>
+          {availableSchematics.map(schematicName => {
+            const segs = lineAllSegs.filter(s => (s.schematic || 'A') === schematicName)
+            const pattern = segs.find(s => s.holeSize !== 'Supply')?.furrowPattern ?? null
+            const sizeCount = new Set(segs.filter(s => s.holeSize !== 'Supply').map(s => s.holeSize)).size
+            return (
+              <button key={schematicName} onClick={() => setSelectedSchematic(schematicName)}
+                      className="w-full max-w-xs py-4 rounded-xl text-white text-lg font-medium border border-white/20 active:border-green-500/60 transition-all">
+                {schematicName}
+                <div className="text-gray-500 text-xs font-normal mt-0.5">
+                  {sizeCount} hole size{sizeCount !== 1 ? 's' : ''}{pattern ? ` · ${furrowPatternLabel(pattern)}` : ''}
+                </div>
+              </button>
+            )
+          })}
         </div>
       </div>
     )
@@ -582,7 +590,6 @@ export default function PunchingMode({ run, onExit }) {
 
   // ── Step 3: gear list — required punchers for this line ──────────────────────
   if (!gearConfirmed) {
-    const lineSegs = (allSegments ?? []).filter(s => (s.line || 'Line 1') === selectedLine)
     const sizes = []
     lineSegs.forEach(s => { if (s.holeSize && s.holeSize !== 'Supply' && !sizes.includes(s.holeSize)) sizes.push(s.holeSize) })
     return (
@@ -594,7 +601,7 @@ export default function PunchingMode({ run, onExit }) {
         <div className="flex-1 flex flex-col items-center justify-center gap-5 px-6">
           <div className="text-center">
             <div className="text-white font-bold text-xl mb-1">Grab your punchers</div>
-            <div className="text-gray-500 text-sm">{selectedLine} · {furrowPatternLabel(selectedPattern)}</div>
+            <div className="text-gray-500 text-sm">{selectedLine} · Schematic {selectedSchematic} · {furrowPatternLabel(selectedPattern)}</div>
           </div>
           <div className="w-full max-w-xs flex flex-col gap-2">
             {sizes.length === 0 ? (
@@ -671,9 +678,11 @@ export default function PunchingMode({ run, onExit }) {
               {currentSeg.holeSize}
             </div>
             {/* Show the session pattern prominently — overrides per-segment label */}
-            <div className="text-white font-semibold text-lg text-center">
-              {selectedPattern === 'every' ? 'Every furrow' : 'Every other furrow'}
-            </div>
+            {selectedPattern && (
+              <div className="text-white font-semibold text-lg text-center">
+                {selectedPattern === 'every' ? 'Every furrow' : 'Every other furrow'}
+              </div>
+            )}
             {currentFt != null && totalFt > 0 && (
               <div className="text-white/70 text-xs tabular-nums mt-1">
                 {Math.round(currentFt).toLocaleString()} / {totalFt.toLocaleString()} ft
