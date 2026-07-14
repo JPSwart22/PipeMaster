@@ -1,3 +1,11 @@
+import { Capacitor } from '@capacitor/core'
+
+// The native app serves its bundled files from https://localhost (no server.url configured
+// in capacitor.config.json), so a relative /api/... fetch never reaches the real Vercel
+// backend — it resolves to a path on the device that doesn't exist. The web PWA at
+// pipemaster.vercel.app is same-origin and doesn't need this, but native always does.
+const API_BASE = Capacitor.isNativePlatform() ? 'https://pipemaster.vercel.app' : ''
+
 // Compress + normalize before sending — Android camera photos can be 8-12 MB which
 // exceeds Vercel's 4.5 MB body limit. This scales to ≤1600px and re-encodes as JPEG.
 function compressImage(file) {
@@ -46,7 +54,7 @@ export async function parsePipeSheet(imageFile, geoContext = null) {
     reader.readAsDataURL(sendFile)
   })
 
-  const res = await fetch('/api/parse-sheet', {
+  const res = await fetch(`${API_BASE}/api/parse-sheet`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ imageBase64, mediaType, geoContext }),
