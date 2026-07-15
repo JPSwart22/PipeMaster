@@ -6,9 +6,6 @@ workflows:
     integrations:
       app_store_connect: Codemagic Admin
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: app.pipemaster
       vars:
         XCODE_SCHEME: "App"
         BUNDLE_ID: "app.pipemaster"
