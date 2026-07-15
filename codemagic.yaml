@@ -9,7 +9,7 @@ workflows:
       vars:
         XCODE_SCHEME: "App"
         BUNDLE_ID: "app.pipemaster"
-      node: 20
+      node: 22
       xcode: latest
     triggering:
       events:
