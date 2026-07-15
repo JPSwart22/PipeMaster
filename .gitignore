@@ -29,3 +29,17 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# iOS
+ios/App/Pods
+ios/App/build
+ios/App/DerivedData
+ios/**/xcuserdata
+*.ipa
+*.dSYM.zip
+*.p12
+*.mobileprovision
+
+# adb logcat dumps
+android/*.logcat
+android/*.logcat.txt
