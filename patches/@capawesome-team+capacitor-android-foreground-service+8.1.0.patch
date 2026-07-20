@@ -1,8 +1,8 @@
 diff --git a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
-index 3df5ad5..02c2449 100644
+index 3df5ad5..03c97c5 100644
 --- a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
 +++ b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
-@@ -6,25 +6,139 @@ import android.app.PendingIntent;
+@@ -6,25 +6,150 @@ import android.app.PendingIntent;
  import android.app.Service;
  import android.content.Context;
  import android.content.Intent;
@@ -16,6 +16,7 @@ index 3df5ad5..02c2449 100644
  import android.os.Bundle;
  import android.os.IBinder;
 +import android.os.PowerManager;
++import android.os.SystemClock;
 +import android.os.VibrationEffect;
 +import android.os.Vibrator;
 +import android.speech.tts.TextToSpeech;
@@ -44,6 +45,16 @@ index 3df5ad5..02c2449 100644
 +    private final List<double[]> trackPath = new ArrayList<>();
 +    private final List<Segment> trackSegments = new ArrayList<>();
 +    private String lastNativeHoleSize = null;
++
++    // Fix filtering — NETWORK_PROVIDER fixes (cell/Wi-Fi triangulation) can be off by hundreds
++    // of meters, which without filtering shows up as the position marker jumping far away then
++    // snapping back a few seconds later once a real GPS fix arrives. Once GPS is flowing, network
++    // fixes are ignored entirely; network is only used to get *something* on screen before the
++    // first GPS lock comes in.
++    private Location lastAcceptedLocation;
++    private long lastGpsFixElapsedRealtime = 0;
++    private static final float MAX_ACCEPTABLE_ACCURACY_M = 50f;
++    private static final long GPS_PREFERENCE_WINDOW_MS = 15000;
 +
 +    private static class Segment {
 +        final double startFt, endFt;
@@ -142,7 +153,7 @@ index 3df5ad5..02c2449 100644
              Bundle extras = intent.getExtras();
              String channelId = extras.getString("channelId", ForegroundService.DEFAULT_NOTIFICATION_CHANNEL_ID);
              Bundle notificationBundle = extras.getBundle("notification");
-@@ -35,6 +149,18 @@ public class AndroidForegroundService extends Service {
+@@ -35,6 +160,18 @@ public class AndroidForegroundService extends Service {
              boolean silent = notificationBundle.getBoolean("silent", false);
              ArrayList<Bundle> buttonsBundle = notificationBundle.getParcelableArrayList("buttons");
              int serviceType = notificationBundle.getInt("serviceType", 0);
@@ -161,7 +172,7 @@ index 3df5ad5..02c2449 100644
  
              PendingIntent contentIntent = buildContentIntent(id);
              Notification.Builder builder;
-@@ -50,7 +176,11 @@ public class AndroidForegroundService extends Service {
+@@ -50,7 +187,11 @@ public class AndroidForegroundService extends Service {
                  .setOngoing(true)
                  .setSmallIcon(icon)
                  .setPriority(Notification.PRIORITY_HIGH)
@@ -173,7 +184,7 @@ index 3df5ad5..02c2449 100644
              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                  Notification.Action[] actions = convertBundlesToNotificationActions(
                      buttonsBundle.toArray(new Bundle[buttonsBundle.size()])
-@@ -63,7 +193,19 @@ public class AndroidForegroundService extends Service {
+@@ -63,7 +204,19 @@ public class AndroidForegroundService extends Service {
              if (ForegroundService.ACTION_UPDATE.equals(action)) {
                  NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                  notificationManager.notify(id, notification);
@@ -193,7 +204,7 @@ index 3df5ad5..02c2449 100644
                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && serviceType != 0) {
                      startForeground(id, notification, serviceType);
                  } else {
-@@ -72,10 +214,230 @@ public class AndroidForegroundService extends Service {
+@@ -72,10 +225,248 @@ public class AndroidForegroundService extends Service {
              }
          } catch (Exception exception) {
              Logger.error(ForegroundServicePlugin.TAG, exception.getMessage(), exception);
@@ -309,6 +320,11 @@ index 3df5ad5..02c2449 100644
 +        locationListener = new LocationListener() {
 +            @Override
 +            public void onLocationChanged(Location location) {
++                if (!isAcceptableLocation(location)) return;
++                if (LocationManager.GPS_PROVIDER.equals(location.getProvider())) {
++                    lastGpsFixElapsedRealtime = SystemClock.elapsedRealtime();
++                }
++                lastAcceptedLocation = location;
 +                handleNativeLocationUpdate(location.getLatitude(), location.getLongitude());
 +            }
 +            @Override
@@ -339,8 +355,21 @@ index 3df5ad5..02c2449 100644
 +        locationManager = null;
 +        locationListener = null;
 +        lastNativeHoleSize = null;
++        lastAcceptedLocation = null;
++        lastGpsFixElapsedRealtime = 0;
 +        trackPath.clear();
 +        trackSegments.clear();
++    }
++
++    // Rejects coarse/erratic fixes that cause the position to jump far away and snap back.
++    private boolean isAcceptableLocation(Location location) {
++        boolean isGps = LocationManager.GPS_PROVIDER.equals(location.getProvider());
++        boolean recentGpsFix = (SystemClock.elapsedRealtime() - lastGpsFixElapsedRealtime) < GPS_PREFERENCE_WINDOW_MS;
++        // GPS is already flowing — don't let a coarse network fix knock the position off.
++        if (!isGps && recentGpsFix) return false;
++        // Nothing on screen yet — accept anything so the user isn't left with no position at all.
++        if (lastAcceptedLocation == null) return true;
++        return location.getAccuracy() <= MAX_ACCEPTABLE_ACCURACY_M;
 +    }
 +
 +    private void handleNativeLocationUpdate(double lat, double lon) {

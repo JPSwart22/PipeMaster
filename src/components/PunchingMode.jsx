@@ -122,6 +122,7 @@ export default function PunchingMode({ run, onExit }) {
   const [checkingReadiness, setCheckingReadiness] = useState(true)
   const lastHoleSizeRef = useRef(null)
   const lastDistanceBucketRef = useRef(null)
+  const hasGpsFixRef = useRef(false)
   const audioCtxRef = useRef(null)
   // GPS watch can start (and get a fix) before the foreground service has finished starting —
   // updateForegroundService() internally calls Context.startForegroundService() too, which arms
@@ -397,9 +398,15 @@ export default function PunchingMode({ run, onExit }) {
     if (!selectedLine || !run.path?.length) return
     if (!navigator.geolocation) { setGpsError('GPS not available on this device'); return }
 
+    hasGpsFixRef.current = false
     const watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const { latitude, longitude, accuracy: acc } = pos.coords
+        // Reject coarse fixes (cell/Wi-Fi triangulation) once we already have a real position —
+        // without this the marker jumps hundreds of yards away and snaps back a moment later.
+        // Always accept the very first fix so the user isn't left with nothing on screen.
+        if (hasGpsFixRef.current && acc > 50) return
+        hasGpsFixRef.current = true
         const latlng = [latitude, longitude]
         setPosition(latlng)
         setAccuracy(acc)
