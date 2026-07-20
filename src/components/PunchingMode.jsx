@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { MapContainer, TileLayer, CircleMarker, Circle, Polyline, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Circle, useMap } from 'react-leaflet'
 import { ForegroundService, ServiceType } from '@capawesome-team/capacitor-android-foreground-service'
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
 import db from '../lib/db'
 import { nearestFtOnPath, segmentAtFt, pathTotalFt, HOLE_COLOR } from '../lib/pipeUtils'
 import { useBackClose } from '../lib/backButtonStack'
+import PipeRunLine from './PipeRunLine'
 
 // Centers on the first GPS fix, then smoothly pans (without fighting any zoom
 // the user has set) on every update after — feels like turn-by-turn nav apps
@@ -644,7 +645,7 @@ export default function PunchingMode({ run, onExit }) {
         <MapContainer center={position ?? run.path?.[0] ?? [33.0, -90.0]} zoom={18} zoomControl={false}
                       style={{ height: '100%', width: '100%' }}>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={22} />
-          <Polyline positions={run.path ?? []} pathOptions={{ color: '#94a3b8', weight: 4, opacity: 0.75 }} />
+          <PipeRunLine run={run} segments={lineSegs} selectable={false} />
           {position && (
             <>
               <Circle center={position} radius={accuracy ?? 0}
