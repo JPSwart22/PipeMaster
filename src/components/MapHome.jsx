@@ -483,7 +483,6 @@ export default function MapHome({ onSwitchToFieldMode }) {
       <div style={{ position: 'absolute', inset: 0 }}>
         <MapContainer ref={mapRef} center={DELTA_CENTER} zoom={10} zoomControl={false}
                       doubleClickZoom={false}
-                      rotate={true} rotateControl={false} touchRotate={true} bearing={0}
                       style={{ height: '100%', width: '100%' }}>
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" attribution="Tiles &copy; Esri" maxNativeZoom={19} maxZoom={22} />
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={19} maxZoom={22} opacity={0.8} />
