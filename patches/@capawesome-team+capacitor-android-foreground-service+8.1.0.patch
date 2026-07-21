@@ -11,7 +11,7 @@ index cd11dcd..93d4547 100644
      androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
      androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
 diff --git a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
-index 3df5ad5..25fc0d7 100644
+index 3df5ad5..a3b0cf2 100644
 --- a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
 +++ b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
 @@ -6,25 +6,153 @@ import android.app.PendingIntent;
@@ -342,7 +342,7 @@ index 3df5ad5..25fc0d7 100644
 +                Location location = locationResult.getLastLocation();
 +                if (location == null || !isAcceptableLocation(location)) return;
 +                lastAcceptedLocation = location;
-+                handleNativeLocationUpdate(location.getLatitude(), location.getLongitude());
++                handleNativeLocationUpdate(location.getLatitude(), location.getLongitude(), location.getAccuracy());
 +            }
 +        };
 +        try {
@@ -351,7 +351,7 @@ index 3df5ad5..25fc0d7 100644
 +            fusedLocationClient.getLastLocation().addOnSuccessListener(location -> {
 +                if (location != null && lastAcceptedLocation == null) {
 +                    lastAcceptedLocation = location;
-+                    handleNativeLocationUpdate(location.getLatitude(), location.getLongitude());
++                    handleNativeLocationUpdate(location.getLatitude(), location.getLongitude(), location.getAccuracy());
 +                }
 +            });
 +            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
@@ -379,7 +379,7 @@ index 3df5ad5..25fc0d7 100644
 +        return location.getAccuracy() <= MAX_ACCEPTABLE_ACCURACY_M;
 +    }
 +
-+    private void handleNativeLocationUpdate(double lat, double lon) {
++    private void handleNativeLocationUpdate(double lat, double lon, float accuracy) {
 +        if (trackPath.size() < 2 || trackSegments.isEmpty()) return;
 +        double ft = nearestFtOnPath(lat, lon);
 +        Segment seg = segmentAtFt(ft);
@@ -407,7 +407,7 @@ index 3df5ad5..25fc0d7 100644
 +        String body = Math.round(distanceFt) + " ft to next size";
 +        postNativeNotificationUpdate(title, body);
 +
-+        ForegroundServicePlugin.onPositionUpdate(lat, lon, ft, seg.holeSize, seg.startFt, seg.endFt);
++        ForegroundServicePlugin.onPositionUpdate(lat, lon, accuracy, ft, seg.holeSize, seg.startFt, seg.endFt);
 +    }
 +
 +    private void postNativeNotificationUpdate(String title, String body) {
@@ -561,7 +561,7 @@ index 132f897..90af998 100644
      }
  }
 diff --git a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServicePlugin.java b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServicePlugin.java
-index aa2c75f..6db36ae 100644
+index aa2c75f..1215c2a 100644
 --- a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServicePlugin.java
 +++ b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/ForegroundServicePlugin.java
 @@ -2,10 +2,13 @@ package io.capawesome.capacitorjs.plugins.foregroundservice;
@@ -709,13 +709,13 @@ index aa2c75f..6db36ae 100644
      @PluginMethod
      public void checkManageOverlayPermission(PluginCall call) {
          try {
-@@ -267,6 +371,27 @@ public class ForegroundServicePlugin extends Plugin {
+@@ -267,6 +371,28 @@ public class ForegroundServicePlugin extends Plugin {
          }
      }
  
 +    // Bridges native GPS-driven position updates (computed while the WebView may be fully
 +    // suppressed by the screen lock) back into JS so the live map stays in sync once visible.
-+    public static void onPositionUpdate(double lat, double lon, double ft, String holeSize, double segStartFt, double segEndFt) {
++    public static void onPositionUpdate(double lat, double lon, float accuracy, double ft, String holeSize, double segStartFt, double segEndFt) {
 +        try {
 +            ForegroundServicePlugin plugin = ForegroundServicePlugin.getForegroundServicePluginInstance();
 +            if (plugin == null) {
@@ -724,6 +724,7 @@ index aa2c75f..6db36ae 100644
 +            JSObject result = new JSObject();
 +            result.put("lat", lat);
 +            result.put("lon", lon);
++            result.put("accuracy", accuracy);
 +            result.put("ft", ft);
 +            result.put("holeSize", holeSize);
 +            result.put("segStartFt", segStartFt);

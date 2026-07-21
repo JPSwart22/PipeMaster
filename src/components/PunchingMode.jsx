@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, CircleMarker, Circle, useMap } from 'react-lea
 import { ForegroundService, ServiceType } from '@capawesome-team/capacitor-android-foreground-service'
 import { TextToSpeech } from '@capacitor-community/text-to-speech'
 import db from '../lib/db'
-import { nearestFtOnPath, segmentAtFt, pathTotalFt, HOLE_COLOR } from '../lib/pipeUtils'
+import { pathTotalFt, HOLE_COLOR } from '../lib/pipeUtils'
 import { useBackClose } from '../lib/backButtonStack'
 import PipeRunLine from './PipeRunLine'
 
@@ -122,8 +122,6 @@ export default function PunchingMode({ run, onExit }) {
   const [readiness, setReadiness] = useState(null)
   const [checkingReadiness, setCheckingReadiness] = useState(true)
   const lastHoleSizeRef = useRef(null)
-  const lastDistanceBucketRef = useRef(null)
-  const hasGpsFixRef = useRef(false)
   const audioCtxRef = useRef(null)
   // GPS watch can start (and get a fix) before the foreground service has finished starting —
   // updateForegroundService() internally calls Context.startForegroundService() too, which arms
@@ -131,10 +129,6 @@ export default function PunchingMode({ run, onExit }) {
   // has created the notification channel and called startForeground(), the app crashes with
   // ForegroundServiceDidNotStartInTimeException. Gate all updates on the real start completing.
   const serviceReadyRef = useRef(false)
-  // If a hole-size update arrives before the service finishes starting, remember it here and
-  // flush it once ready — otherwise that segment's notification would be silently lost forever,
-  // since lastHoleSizeRef already records it as "shown" the moment GPS resolves it.
-  const pendingUpdateRef = useRef(null)
 
   async function refreshReadiness() {
     try {
@@ -247,36 +241,11 @@ export default function PunchingMode({ run, onExit }) {
       })
       serviceReadyRef.current = true
       setServiceReadyTick(t => t + 1)
-      if (pendingUpdateRef.current) {
-        const pending = pendingUpdateRef.current
-        pendingUpdateRef.current = null
-        updateForegroundNotification(pending.holeSize, pending.distanceFt)
-      }
     } catch { /* not Android or permission denied */ }
-  }
-
-  async function updateForegroundNotification(holeSize, distanceFt) {
-    if (!serviceReadyRef.current) {
-      pendingUpdateRef.current = { holeSize, distanceFt }
-      return
-    }
-    const distanceText = distanceFt != null ? `${Math.round(distanceFt).toLocaleString()} ft to next size` : ''
-    try {
-      await ForegroundService.updateForegroundService({
-        title: holeSize === 'Supply' ? 'Supply Line — no holes' : `${holeSize} holes`,
-        body: distanceText,
-        id: 1001,
-        smallIcon: 'ic_stat_notify',
-        notificationChannelId: 'pipemaster_punching',
-        silent: true,
-      })
-    } catch { /* service not running */ }
   }
 
   async function stopForegroundService() {
     serviceReadyRef.current = false
-    pendingUpdateRef.current = null
-    lastDistanceBucketRef.current = null
     try {
       await ForegroundService.stopForegroundService()
     } catch { /* not Android */ }
@@ -366,21 +335,35 @@ export default function PunchingMode({ run, onExit }) {
     }
   }, [])
 
-  // Keeps the live map in sync with the native service's own GPS tracking (which runs
-  // regardless of screen state) — without this, reopening the app after a locked stretch
-  // would show a stale position until a fresh JS-side GPS fix happened to arrive.
+  // Single source of GPS truth — native's Fused Location tracking runs regardless of screen
+  // state. A second, separate navigator.geolocation.watchPosition() used to run alongside it
+  // for the visible-screen case, but two concurrent location requests from the same app hits
+  // Android's system-level throttling ("location delivery blocked - too fast/too close"),
+  // which was actually making tracking *worse*, not better. Native TTS/vibration already fires
+  // for locked-screen hole changes on its own; this effect adds the richer JS voice text
+  // (furrow pattern included) and chime for whenever the screen happens to be on.
   useEffect(() => {
-    const listener = ForegroundService.addListener('positionUpdate', ({ lat, lon, ft, holeSize, segStartFt, segEndFt }) => {
+    const listener = ForegroundService.addListener('positionUpdate', ({ lat, lon, accuracy: acc, ft, holeSize, segStartFt, segEndFt }) => {
       setPosition([lat, lon])
+      setAccuracy(acc)
       setCurrentFt(ft)
       setCurrentSeg(prev => (
         prev && prev.startFt === segStartFt && prev.endFt === segEndFt && prev.holeSize === holeSize
           ? prev
           : (lineSegs.find(s => s.startFt === segStartFt && s.endFt === segEndFt) ?? prev)
       ))
+      const holeSizeChanged = holeSize !== lastHoleSizeRef.current
+      if (holeSizeChanged) {
+        if (lastHoleSizeRef.current !== null && document.visibilityState === 'visible') {
+          navigator.vibrate?.([200, 100, 200, 100, 200])
+          playChime()
+          speakHoleSize(holeSize, selectedPattern).catch(() => {})
+        }
+        lastHoleSizeRef.current = holeSize
+      }
     })
     return () => { listener.remove() }
-  }, [lineSegs]) // eslint-disable-line
+  }, [lineSegs, selectedPattern]) // eslint-disable-line
 
   // The native service only gets path/segments once, at the moment it starts — if the DB
   // query backing lineSegs hadn't resolved yet at that exact instant (a real timing race,
@@ -393,58 +376,6 @@ export default function PunchingMode({ run, onExit }) {
       segments: JSON.stringify(lineSegs.map(s => ({ startFt: s.startFt, endFt: s.endFt, holeSize: s.holeSize }))),
     }).catch(() => {})
   }, [gearConfirmed, lineSegs, run.path, serviceReadyTick]) // eslint-disable-line
-
-  // Live GPS → nearest point on the path → which segment that falls in
-  useEffect(() => {
-    if (!selectedLine || !run.path?.length) return
-    if (!navigator.geolocation) { setGpsError('GPS not available on this device'); return }
-
-    hasGpsFixRef.current = false
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const { latitude, longitude, accuracy: acc } = pos.coords
-        // Reject coarse fixes (cell/Wi-Fi triangulation) once we already have a real position —
-        // without this the marker jumps hundreds of yards away and snaps back a moment later.
-        // Always accept the very first fix so the user isn't left with nothing on screen.
-        if (hasGpsFixRef.current && acc > 50) return
-        hasGpsFixRef.current = true
-        const latlng = [latitude, longitude]
-        setPosition(latlng)
-        setAccuracy(acc)
-        const ft = nearestFtOnPath(run.path, latlng)
-        const seg = segmentAtFt(lineSegs, ft)
-        setCurrentFt(ft)
-        setCurrentSeg(seg)
-        if (seg) {
-          const holeSizeChanged = seg.holeSize !== lastHoleSizeRef.current
-          if (holeSizeChanged) {
-            if (lastHoleSizeRef.current !== null) {
-              // Only use JS audio/vibration when the screen is on — the native foreground
-              // service handles TTS and vibration when the screen is locked.
-              if (document.visibilityState === 'visible') {
-                navigator.vibrate?.([200, 100, 200, 100, 200])
-                playChime()
-                speakHoleSize(seg.holeSize, selectedPattern).catch(() => {})
-              }
-            }
-            lastHoleSizeRef.current = seg.holeSize
-          }
-          // Round to the nearest 25ft so the lock-screen distance updates as you walk without
-          // reposting the notification on every single GPS fix.
-          const distanceFt = Math.max(0, seg.endFt - ft)
-          const distanceBucket = Math.round(distanceFt / 25) * 25
-          if (holeSizeChanged || distanceBucket !== lastDistanceBucketRef.current) {
-            lastDistanceBucketRef.current = distanceBucket
-            // Update lock-screen notification; native service speaks + vibrates if screen is off
-            updateForegroundNotification(seg.holeSize, distanceFt)
-          }
-        }
-      },
-      (err) => setGpsError(err.message),
-      { enableHighAccuracy: true, maximumAge: 1000 }
-    )
-    return () => navigator.geolocation.clearWatch(watchId)
-  }, [selectedLine, run.path, allSegments])
 
   const totalFt = Math.round(pathTotalFt(run.path ?? []))
   const color = currentSeg ? (HOLE_COLOR[currentSeg.holeSize] ?? '#64748b') : '#1a2535'
