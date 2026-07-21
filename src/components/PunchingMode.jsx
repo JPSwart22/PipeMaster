@@ -229,7 +229,7 @@ export default function PunchingMode({ run, onExit }) {
         id: 'pipemaster_punching',
         name: 'Punching Mode',
         description: 'Shows your current hole size while punching',
-        importance: 3,
+        importance: 4,
       })
       await ForegroundService.startForegroundService({
         title: 'Punching Mode Active',

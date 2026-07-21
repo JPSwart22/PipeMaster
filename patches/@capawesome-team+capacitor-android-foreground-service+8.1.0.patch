@@ -1,27 +1,43 @@
+diff --git a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/build.gradle b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/build.gradle
+index cd11dcd..93d4547 100644
+--- a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/build.gradle
++++ b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/build.gradle
+@@ -52,6 +52,7 @@ dependencies {
+     implementation fileTree(dir: 'libs', include: ['*.jar'])
+     implementation project(':capacitor-android')
+     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
++    implementation "com.google.android.gms:play-services-location:21.3.0"
+     testImplementation "junit:junit:$junitVersion"
+     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
 diff --git a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
-index 3df5ad5..03c97c5 100644
+index 3df5ad5..25fc0d7 100644
 --- a/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
 +++ b/node_modules/@capawesome-team/capacitor-android-foreground-service/android/src/main/java/io/capawesome/capacitorjs/plugins/foregroundservice/AndroidForegroundService.java
-@@ -6,25 +6,150 @@ import android.app.PendingIntent;
+@@ -6,25 +6,153 @@ import android.app.PendingIntent;
  import android.app.Service;
  import android.content.Context;
  import android.content.Intent;
 +import android.content.SharedPreferences;
 +import android.location.Location;
-+import android.location.LocationListener;
-+import android.location.LocationManager;
 +import android.media.session.MediaSession;
 +import android.media.session.PlaybackState;
  import android.os.Build;
  import android.os.Bundle;
  import android.os.IBinder;
++import android.os.Looper;
 +import android.os.PowerManager;
-+import android.os.SystemClock;
 +import android.os.VibrationEffect;
 +import android.os.Vibrator;
 +import android.speech.tts.TextToSpeech;
  import androidx.annotation.Nullable;
  import com.getcapacitor.Logger;
++import com.google.android.gms.location.FusedLocationProviderClient;
++import com.google.android.gms.location.LocationCallback;
++import com.google.android.gms.location.LocationRequest;
++import com.google.android.gms.location.LocationResult;
++import com.google.android.gms.location.LocationServices;
++import com.google.android.gms.location.Priority;
  import java.util.ArrayList;
 +import java.util.List;
 +import java.util.Locale;
@@ -40,21 +56,20 @@ index 3df5ad5..03c97c5 100644
 +    // to nothing by Chromium once document.visibilityState is 'hidden' (a deliberate privacy
 +    // behavior, not something an Android wake lock can override), so screen-locked tracking
 +    // has to happen entirely in Java, independent of whether the WebView is responsive.
-+    private LocationManager locationManager;
-+    private LocationListener locationListener;
++    // Uses Google's Fused Location Provider rather than raw LocationManager — it blends
++    // GPS/network/sensor sources internally and gets a usable first fix noticeably faster than
++    // requesting GPS_PROVIDER directly.
++    private FusedLocationProviderClient fusedLocationClient;
++    private LocationCallback locationCallback;
 +    private final List<double[]> trackPath = new ArrayList<>();
 +    private final List<Segment> trackSegments = new ArrayList<>();
 +    private String lastNativeHoleSize = null;
 +
-+    // Fix filtering — NETWORK_PROVIDER fixes (cell/Wi-Fi triangulation) can be off by hundreds
-+    // of meters, which without filtering shows up as the position marker jumping far away then
-+    // snapping back a few seconds later once a real GPS fix arrives. Once GPS is flowing, network
-+    // fixes are ignored entirely; network is only used to get *something* on screen before the
-+    // first GPS lock comes in.
++    // Fix filtering — even fused fixes can occasionally be a coarse (cell/Wi-Fi-derived) low
++    // accuracy reading, which without filtering shows up as the position marker jumping far away
++    // then snapping back a few seconds later once a better fix arrives.
 +    private Location lastAcceptedLocation;
-+    private long lastGpsFixElapsedRealtime = 0;
 +    private static final float MAX_ACCEPTABLE_ACCURACY_M = 50f;
-+    private static final long GPS_PREFERENCE_WINDOW_MS = 15000;
 +
 +    private static class Segment {
 +        final double startFt, endFt;
@@ -153,7 +168,7 @@ index 3df5ad5..03c97c5 100644
              Bundle extras = intent.getExtras();
              String channelId = extras.getString("channelId", ForegroundService.DEFAULT_NOTIFICATION_CHANNEL_ID);
              Bundle notificationBundle = extras.getBundle("notification");
-@@ -35,6 +160,18 @@ public class AndroidForegroundService extends Service {
+@@ -35,6 +163,18 @@ public class AndroidForegroundService extends Service {
              boolean silent = notificationBundle.getBoolean("silent", false);
              ArrayList<Bundle> buttonsBundle = notificationBundle.getParcelableArrayList("buttons");
              int serviceType = notificationBundle.getInt("serviceType", 0);
@@ -172,7 +187,7 @@ index 3df5ad5..03c97c5 100644
  
              PendingIntent contentIntent = buildContentIntent(id);
              Notification.Builder builder;
-@@ -50,7 +187,11 @@ public class AndroidForegroundService extends Service {
+@@ -50,7 +190,11 @@ public class AndroidForegroundService extends Service {
                  .setOngoing(true)
                  .setSmallIcon(icon)
                  .setPriority(Notification.PRIORITY_HIGH)
@@ -184,7 +199,7 @@ index 3df5ad5..03c97c5 100644
              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                  Notification.Action[] actions = convertBundlesToNotificationActions(
                      buttonsBundle.toArray(new Bundle[buttonsBundle.size()])
-@@ -63,7 +204,19 @@ public class AndroidForegroundService extends Service {
+@@ -63,7 +207,19 @@ public class AndroidForegroundService extends Service {
              if (ForegroundService.ACTION_UPDATE.equals(action)) {
                  NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
                  notificationManager.notify(id, notification);
@@ -204,7 +219,7 @@ index 3df5ad5..03c97c5 100644
                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && serviceType != 0) {
                      startForeground(id, notification, serviceType);
                  } else {
-@@ -72,10 +225,248 @@ public class AndroidForegroundService extends Service {
+@@ -72,10 +228,240 @@ public class AndroidForegroundService extends Service {
              }
          } catch (Exception exception) {
              Logger.error(ForegroundServicePlugin.TAG, exception.getMessage(), exception);
@@ -315,58 +330,50 @@ index 3df5ad5..03c97c5 100644
 +    }
 +
 +    private void startLocationTracking() {
-+        if (locationManager != null) return;
-+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
-+        locationListener = new LocationListener() {
++        if (fusedLocationClient != null) return;
++        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
++        LocationRequest locationRequest = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)
++            .setMinUpdateIntervalMillis(500)
++            .setWaitForAccurateLocation(false)
++            .build();
++        locationCallback = new LocationCallback() {
 +            @Override
-+            public void onLocationChanged(Location location) {
-+                if (!isAcceptableLocation(location)) return;
-+                if (LocationManager.GPS_PROVIDER.equals(location.getProvider())) {
-+                    lastGpsFixElapsedRealtime = SystemClock.elapsedRealtime();
-+                }
++            public void onLocationResult(LocationResult locationResult) {
++                Location location = locationResult.getLastLocation();
++                if (location == null || !isAcceptableLocation(location)) return;
 +                lastAcceptedLocation = location;
 +                handleNativeLocationUpdate(location.getLatitude(), location.getLongitude());
 +            }
-+            @Override
-+            public void onStatusChanged(String provider, int status, Bundle extras) {}
-+            @Override
-+            public void onProviderEnabled(String provider) {}
-+            @Override
-+            public void onProviderDisabled(String provider) {}
 +        };
 +        try {
-+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-+                locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0, locationListener);
-+            }
-+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-+                locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000, 0, locationListener);
-+            }
++            // getLastLocation() often returns near-instantly with a recent cached fix, giving the
++            // user something on screen well before the first live update arrives.
++            fusedLocationClient.getLastLocation().addOnSuccessListener(location -> {
++                if (location != null && lastAcceptedLocation == null) {
++                    lastAcceptedLocation = location;
++                    handleNativeLocationUpdate(location.getLatitude(), location.getLongitude());
++                }
++            });
++            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
 +        } catch (SecurityException exception) {
 +            Logger.error(ForegroundServicePlugin.TAG, "Location permission missing for native tracking", exception);
 +        }
 +    }
 +
 +    private void stopLocationTracking() {
-+        if (locationManager != null && locationListener != null) {
-+            try {
-+                locationManager.removeUpdates(locationListener);
-+            } catch (SecurityException ignored) { /* permission already gone — nothing to clean up */ }
++        if (fusedLocationClient != null && locationCallback != null) {
++            fusedLocationClient.removeLocationUpdates(locationCallback);
 +        }
-+        locationManager = null;
-+        locationListener = null;
++        fusedLocationClient = null;
++        locationCallback = null;
 +        lastNativeHoleSize = null;
 +        lastAcceptedLocation = null;
-+        lastGpsFixElapsedRealtime = 0;
 +        trackPath.clear();
 +        trackSegments.clear();
 +    }
 +
 +    // Rejects coarse/erratic fixes that cause the position to jump far away and snap back.
 +    private boolean isAcceptableLocation(Location location) {
-+        boolean isGps = LocationManager.GPS_PROVIDER.equals(location.getProvider());
-+        boolean recentGpsFix = (SystemClock.elapsedRealtime() - lastGpsFixElapsedRealtime) < GPS_PREFERENCE_WINDOW_MS;
-+        // GPS is already flowing — don't let a coarse network fix knock the position off.
-+        if (!isGps && recentGpsFix) return false;
 +        // Nothing on screen yet — accept anything so the user isn't left with no position at all.
 +        if (lastAcceptedLocation == null) return true;
 +        return location.getAccuracy() <= MAX_ACCEPTABLE_ACCURACY_M;
